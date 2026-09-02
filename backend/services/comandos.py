@@ -8,6 +8,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from cache import clear_pendientes, del_pendiente, get_pendiente, set_pendiente
 from db.models import Categoria, Movimiento, User
 from parser.fallback_regex import extraer_con_regex, extraer_fecha_explicita
 from parser.mensajes import format_cop
@@ -138,17 +139,6 @@ class Comando:
     descripcion_nueva: str | None = None
 
 
-@dataclass
-class _Pendiente:
-    accion: str
-    ids: tuple[int, ...]
-    monto: int | None = None
-    categoria: str | None = None
-    fecha_gasto: date | None = None
-    descripcion_nueva: str | None = None
-
-
-_PENDIENTES: dict[int, _Pendiente] = {}
 _ID_RESPUESTA = re.compile(
     r"^(?:(?:borra|borrar|elimina|eliminar|suprime|suprimir|quita|quitar|"
     r"corrige|corregir|cambia|cambiar|actualiza|actualizar|modifica|modificar)\s+)?"
@@ -157,11 +147,11 @@ _ID_RESPUESTA = re.compile(
 
 
 def reset_pendientes() -> None:
-    _PENDIENTES.clear()
+    clear_pendientes()
 
 
 def limpiar_pendiente(user_id: int) -> None:
-    _PENDIENTES.pop(user_id, None)
+    del_pendiente(user_id)
 
 
 def parece_comando(texto: str) -> bool:
@@ -183,7 +173,7 @@ def parece_comando(texto: str) -> bool:
 
 
 def aplicar_pendiente(db: Session, user: User, texto: str) -> ResultadoRegistro | None:
-    pendiente = _PENDIENTES.get(user.id)
+    pendiente = get_pendiente(user.id)
     if pendiente is None:
         return None
     t = _normalizar(texto)
@@ -191,23 +181,25 @@ def aplicar_pendiente(db: Session, user: User, texto: str) -> ResultadoRegistro 
     if not match:
         return None
     nid = int(match.group(1))
-    if nid not in pendiente.ids:
-        opciones = ", ".join(f"#{i}" for i in pendiente.ids)
+    ids = tuple(pendiente["ids"])
+    if nid not in ids:
+        opciones = ", ".join(f"#{i}" for i in ids)
         return ResultadoRegistro(
             status="comando",
             mensaje_respuesta=f"Ese # no está en las opciones. Elige {opciones}.",
         )
-    _PENDIENTES.pop(user.id, None)
+    del_pendiente(user.id)
+    fecha = date.fromisoformat(pendiente["fecha_gasto"]) if pendiente.get("fecha_gasto") else None
     return ejecutar_comando(
         db,
         user,
         Comando(
-            accion=pendiente.accion,
+            accion=pendiente["accion"],
             movimiento_id=nid,
-            monto=pendiente.monto,
-            categoria=pendiente.categoria,
-            fecha_gasto=pendiente.fecha_gasto,
-            descripcion_nueva=pendiente.descripcion_nueva,
+            monto=pendiente.get("monto"),
+            categoria=pendiente.get("categoria"),
+            fecha_gasto=fecha,
+            descripcion_nueva=pendiente.get("descripcion_nueva"),
             usar_ultimo=False,
         ),
     )
@@ -432,7 +424,7 @@ def _borrar(db: Session, user: User, comando: Comando) -> ResultadoRegistro:
     assert movimiento is not None
     resumen = _resumen(movimiento)
     eliminar_movimiento(db, movimiento, origen="whatsapp")
-    _PENDIENTES.pop(user.id, None)
+    del_pendiente(user.id)
     return ResultadoRegistro(
         status="comando",
         mensaje_respuesta=f"🗑️ Borrado: {resumen}",
@@ -572,14 +564,14 @@ def _mensaje_confirmacion(
     comando: Comando,
     user_id: int,
 ) -> str:
-    _PENDIENTES[user_id] = _Pendiente(
-        accion=comando.accion,
-        ids=tuple(m.id for m in hits),
-        monto=comando.monto,
-        categoria=comando.categoria,
-        fecha_gasto=comando.fecha_gasto,
-        descripcion_nueva=comando.descripcion_nueva,
-    )
+    set_pendiente(user_id, {
+        "accion": comando.accion,
+        "ids": [m.id for m in hits],
+        "monto": comando.monto,
+        "categoria": comando.categoria,
+        "fecha_gasto": comando.fecha_gasto.isoformat() if comando.fecha_gasto else None,
+        "descripcion_nueva": comando.descripcion_nueva,
+    })
     verbo = "borrar" if comando.accion == "borrar" else "actualizar"
     ejemplo_id = hits[0].id
     if len(hits) == 1:

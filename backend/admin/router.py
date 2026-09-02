@@ -10,6 +10,8 @@ import qrcode.image.svg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from admin.auth import (
@@ -21,6 +23,8 @@ from admin.auth import (
     require_admin,
     totp_enabled,
 )
+
+limiter = Limiter(key_func=get_remote_address)
 from db.models import Categoria, CompraCuotas, Deuda, GastoFijo, Presupuesto, User
 from db.session import get_db
 from services import admin as svc
@@ -161,12 +165,15 @@ def login_page(request: Request) -> HTMLResponse | RedirectResponse:
 
 
 @router.post("/login", response_model=None)
+@limiter.limit("5/minute")
 def login_submit(
+    request: Request,
     username: str = Form(...),
     password: str = Form(...),
     totp_code: str | None = Form(None),
 ) -> RedirectResponse:
-    token = login(username, password, totp_code)
+    client_ip = request.client.host if request.client else ""
+    token = login(username, password, totp_code, client_ip=client_ip)
     if token is None:
         return HTMLResponse(_render_login("Usuario, contrasena o codigo 2FA incorrectos"), status_code=401)
     response = RedirectResponse("/admin", status_code=302)

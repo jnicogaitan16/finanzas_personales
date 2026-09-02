@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: evolution
+          POSTGRES_PASSWORD: evolution
+          POSTGRES_DB: evolution
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U evolution"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create finanzas database
+        run: PGPASSWORD=evolution psql -h localhost -p 5433 -U evolution -c "CREATE DATABASE finanzas;"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        run: python -m pytest tests/ -q
+        env:
+          DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas

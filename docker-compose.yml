@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://evolution:evolution@postgres:5432/finanzas
+      REDIS_URL: redis://redis:6379/1
       TZ: America/Bogota
       EVOLUTION_API_URL: http://evolution:8080
       EVOLUTION_WEBHOOK_URL: http://backend:8000/webhook/evolution
@@ -93,6 +94,26 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  db-backup:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: evolution
+      BACKUP_RETENTION_DAYS: 7
+      TZ: America/Bogota
+    volumes:
+      - ./postgres/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Backup scheduler iniciado. Primer backup en 1 min, luego cada 12h."
+        sleep 60 && /backup.sh
+        while true; do sleep 43200; /backup.sh; done
 
   frontend:
     build: ./frontend

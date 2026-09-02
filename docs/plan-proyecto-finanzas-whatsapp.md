@@ -4,7 +4,7 @@
 **Tipo:** Piloto personal (1-2 usuarios: tú y opcionalmente tu pareja)
 **Moneda:** COP (pesos colombianos)
 **Entorno de desarrollo:** Claude Code (plan Max)
-**Última auditoría:** 2026-09-01
+**Última auditoría:** 2026-09-02
 
 ---
 
@@ -14,137 +14,172 @@ Construir un sistema donde te envías a ti mismo (o tu pareja se envía) notas d
 
 1. Recibe el mensaje.
 2. Si es audio, lo transcribe (Groq/Whisper).
-3. Extrae el valor, la categoría y una descripción usando regex (con plan de integrar IA).
-4. Guarda el registro en PostgreSQL.
-5. Permite gestión CRUD vía panel admin web.
-6. Soporta comandos por WhatsApp: borrar, editar, listar, cambiar categoría.
-7. **Próximo:** dashboard con gráficos, analítica, presupuestos y recomendaciones.
+3. Extrae el valor, la categoría y una descripción usando LLM Groq (Llama 3.3 70B) con regex como fallback.
+4. Guarda el registro en PostgreSQL (con soft delete y audit log).
+5. Permite gestión CRUD vía frontend Next.js (dashboard, presupuestos, cuotas TDC, gastos compartidos, gastos fijos, deudas).
+6. Soporta comandos básicos por WhatsApp: borrar, editar, listar, cambiar categoría.
+7. **Próximo:** exportación CSV/PDF, proyecciones financieras, hardening de seguridad.
 
 **No** se integra con banco, correo, SMS ni compras — la única fuente de verdad es lo que tú escribes o dices en el chat.
 
 ---
 
-## 2. Estado actual del proyecto (auditoría 2026-09-01)
+## 2. Estado actual del proyecto (auditoría 2026-09-02)
 
 ### Progreso por fases
 
 | Fase | Estado | Detalle |
 |------|--------|---------|
-| **Fase 0** — Setup | **COMPLETA** | Estructura, Docker Compose (backend + Postgres + Evolution + Redis), Alembic, esquema DB |
-| **Fase 1** — Registro por texto | **COMPLETA** | Webhook Evolution, parser regex, confirmación WhatsApp, categorías, comandos (borrar/editar/listar) |
+| **Fase 0** — Setup | **COMPLETA** | Estructura, Docker Compose (5 servicios), Alembic (4 migraciones), esquema DB |
+| **Fase 1** — Registro por texto | **COMPLETA** | Webhook Evolution, parser regex, confirmación WhatsApp, 17 categorías, comandos (borrar/editar/listar) |
 | **Fase 2** — Registro por audio | **COMPLETA** | Transcripción Groq/Whisper, mismo pipeline, límite 60s |
-| **Fase 3** — Dashboard y analítica | **NO INICIADA** | `dashboard/app.py` es placeholder, `analytics/` solo tiene `__init__.py` |
-| **Fase 4** — Presupuestos | **PARCIAL** | Tabla `presupuestos` existe en DB pero no hay lógica que la use |
-| **Fase 5** — Skills Claude Code | **NO INICIADA** | No hay skills creados |
+| **Fase 3** — Frontend Next.js + Dashboard | **COMPLETA** | Next.js 16 + TypeScript + TailwindCSS + Shadcn/ui + Recharts. Dashboard con KPIs, gráficos, filtros. CRUD completo. Login 2FA. Docker multi-stage build en puerto 3000 |
+| **Fase 4** — Modelo enriquecido + Parser IA | **COMPLETA** | Parser LLM Groq (Llama 3.3 70B) + regex fallback. Presupuestos, cuotas TDC, gastos compartidos, gastos fijos, deudas. 7 modelos DB, 11 servicios |
+| **Fase 5** — Seguridad | **COMPLETA** | Auth cookies HttpOnly + TOTP 2FA, audit_log, soft delete, webhook verificado, dedup mensajes, HTML escaping. Pendiente: .dockerignore, cambiar creds DB |
+| **Fase 6** — Pendiente | **NO INICIADA** | Comandos WhatsApp avanzados, alertas presupuesto, resumen semanal, CI/CD, exportar datos |
+| **Fase 7** — Skills Claude Code | **COMPLETA** | 14 skills creados en `.claude/commands/`, CLAUDE.md configurado |
 
-### Funcionalidad extra implementada (no estaba en el plan original)
+### Funcionalidad implementada
 
-- **Panel admin web** (`/admin`) con HTTP Basic Auth — CRUD completo de movimientos, categorías, usuarios
+- **Frontend Next.js** (`/`) en puerto 3000 — Dashboard con KPIs, gráficos por categoría, donut, tendencia 6 meses, filtros por usuario/mes
+- **Panel admin legacy** (`/admin`) con HTML/JS vanilla — CRUD básico (reemplazado por frontend Next.js)
+- **Parser dual**: LLM Groq (Llama 3.3 70B) como primario, regex como fallback
 - **Sistema de comandos por WhatsApp**: `borra el último`, `actualiza uber a 15.000`, `últimos`, `categoría del último: Transporte`, `ayuda`
 - **Normalización de números hablados**: "veinte mil" → 20000, "15mil" → 15000
-- **Stack PostgreSQL** con Docker Compose (backend + Postgres + Evolution + Redis)
+- **Modelo enriquecido**: 7 tablas (users, categorias, movimientos, presupuestos, compras_cuotas, deudas, gastos_fijos, audit_log)
+- **Gastos compartidos**: balance Nico-Day con cuotas mensuales recurrentes
+- **Cuotas TDC**: CRUD completo, sincronización bidireccional con movimientos
+- **Auth segura**: cookies HttpOnly + SameSite=strict + TOTP 2FA + sesiones con expiración
+- **Auditoría**: tabla audit_log registra cada crear/editar/borrar con valores antes/después
+- **Docker Compose**: 5 servicios (backend, postgres, evolution, redis, frontend)
 
 ---
 
 ## 3. Auditoría de seguridad
 
-### CRÍTICO
+### Resueltos desde la última auditoría
+
+| # | Hallazgo | Estado | Cómo se resolvió |
+|---|----------|--------|------------------|
+| ~~S2~~ | XSS almacenado en panel admin | **RESUELTO** | Helper `esc()` implementado en `index.html` para escapar HTML |
+| ~~S3~~ | Webhook sin verificación | **RESUELTO** | Validación de header `apikey` o `Authorization: Bearer` + IP Docker network |
+| ~~S7~~ | Sin CSRF en admin | **RESUELTO** | Auth migrada a cookies HttpOnly con SameSite=strict (CSRF mitigado) |
+
+### CRÍTICO (pendiente)
 
 | # | Hallazgo | Riesgo | Archivo | Remediación |
 |---|----------|--------|---------|-------------|
-| S1 | **Secretos reales en `.env`** | Las API keys (GROQ, Evolution), contraseña admin y teléfonos personales están en texto plano. Si el repo se sube a GitHub sin limpiar, quedan expuestos. `.gitignore` lo excluye pero no hay protección adicional. | `.env` | Rotar TODAS las keys inmediatamente si el repo se publicó alguna vez. Usar un secret manager o al mínimo `git-crypt`. Agregar pre-commit hook que bloquee commits con archivos `.env`. |
-| S2 | **XSS almacenado en panel admin** | Los datos del usuario (descripción, mensaje_original) se inyectan directamente en HTML sin escapar via template literals JS: `` `<td>${m.descripcion}` ``. Un mensaje de WhatsApp malicioso podría ejecutar JS en el navegador del admin. | `backend/admin/index.html:141-153` | Escapar HTML en la función `render()` antes de interpolar. Crear helper `esc(str)` que convierta `<>&"'` a entidades HTML. |
-| S3 | **Webhook sin verificación de firma** | `/webhook/evolution` acepta cualquier POST sin validar que venga de Evolution API. Un atacante que conozca la URL podría inyectar mensajes falsos y crear movimientos fraudulentos. | `backend/main.py:108` | Validar header `apikey` o firma HMAC en el webhook. Evolution API soporta autenticación de webhooks. |
-| S4 | **Credenciales de DB débiles** | `evolution:evolution` como user/password de PostgreSQL es trivial de adivinar. | `docker-compose.yml:72-73`, `.env:2` | Usar contraseña generada aleatoriamente. No usar las mismas credenciales que la DB de Evolution. |
-| S5 | **Sin HTTPS** | Todo el tráfico (admin con credenciales Basic Auth, webhook, datos financieros) viaja en texto plano HTTP. | `docker-compose.yml` | Si se expone fuera de localhost, agregar reverse proxy (Caddy/nginx) con TLS. Para uso local está OK. |
+| S1 | **Secretos reales en `.env`** | Las API keys quedan expuestas si el repo se comparte. `.gitignore` lo excluye pero no hay protección adicional. | `.env` | Rotar keys si el repo se publicó. Agregar pre-commit hook que bloquee `.env`. |
+| S4 | **Credenciales de DB débiles** | `evolution:evolution` como user/password de PostgreSQL es trivial. | `docker-compose.yml`, `.env` | Usar contraseña generada aleatoriamente. Acción manual del usuario. |
+| S5 | **Sin HTTPS** | Tráfico en texto plano HTTP. OK para uso local, riesgoso si se expone. | `docker-compose.yml` | Agregar reverse proxy (Caddy/nginx) con TLS si se expone fuera de localhost. |
 
-### MEDIO
+### MEDIO (pendiente)
 
 | # | Hallazgo | Riesgo | Remediación |
 |---|----------|--------|-------------|
-| S6 | **Sin rate limiting** | Cualquier endpoint puede ser bombardeado sin límite. | Agregar `slowapi` o middleware de rate limiting al menos en `/webhook/evolution` y `/admin/*`. |
-| S7 | **Sin CSRF en admin** | HTTP Basic no protege contra CSRF. Un sitio malicioso podría hacer requests al admin si el browser tiene las credenciales cacheadas. | Agregar token CSRF o migrar a cookie-based auth con SameSite=Strict. |
-| S8 | **Sin protección de fuerza bruta en login admin** | No hay lockout ni delay después de intentos fallidos. | Implementar delay exponencial o lockout temporal en `require_admin()`. |
-| S9 | **Endpoints públicos sin auth** | `/health`, `/categorias`, `/movimientos`, `/whatsapp/estado` son accesibles sin autenticación. `/movimientos` expone datos financieros. | Mover `/movimientos` y `/categorias` detrás de auth, o eliminarlos (el admin ya los tiene). |
+| S6 | **Sin rate limiting por IP** | Solo hay dedup de mensajes (500 IDs), pero sin límite por IP/usuario. | Agregar `slowapi` al menos en `/webhook/evolution` y `/admin/*`. |
+| S8 | **Sin protección de fuerza bruta en login** | No hay lockout ni delay después de intentos fallidos de login. | Implementar delay exponencial o lockout temporal. |
+| S14 | **Contraseña admin en texto plano** | `config.admin_password` se compara con `compare_digest` pero no se hashea. Si se lee la memoria del proceso, queda expuesta. | Hashear con bcrypt/argon2 y comparar contra el hash. |
 
-### BAJO
+### BAJO (pendiente)
 
 | # | Hallazgo | Remediación |
 |---|----------|-------------|
-| S10 | Dockerfile copia tests al contenedor de producción | Usar `.dockerignore` para excluir `tests/`, `pytest.ini`, `__pycache__/` |
-| S11 | Python 3.14 en local vs 3.12 en Docker | Alinear versiones para evitar incompatibilidades |
-| S12 | Evolution API v2.3.7 fija — puede tener CVEs | Actualizar periódicamente, revisar changelogs |
-| S13 | Sin logging centralizado | Configurar logging con formato estructurado (JSON) para debugging |
+| ~~S10~~ | ~~Sin `.dockerignore`~~ | **RESUELTO** — `.dockerignore` existe en backend/ y frontend/ |
+| S11 | Python local vs 3.12 en Docker | Alinear versiones |
+| S12 | Evolution API v2.3.7 fija — puede tener CVEs | Actualizar periódicamente |
+| S13 | Sin logging centralizado | Configurar logging con formato estructurado (JSON) |
+| S15 | **Sin CSP headers** | Agregar Content-Security-Policy para reducir riesgo de XSS residual |
 
 ---
 
 ## 4. Auditoría de producto
 
-### Problemas funcionales
+### Resueltos desde la última auditoría
+
+| # | Hallazgo | Estado | Cómo se resolvió |
+|---|----------|--------|------------------|
+| ~~P1~~ | Parser solo regex, sin IA | **RESUELTO** | Parser LLM Groq (Llama 3.3 70B) como primario, regex como fallback. Confianza 0.95 con LLM. |
+| ~~P2~~ | Sin detección de duplicados | **RESUELTO** | Dedup por message_id con OrderedDict (500 IDs max, FIFO cleanup) |
+| ~~P7~~ | Categoría "Otros" como cajón de sastre | **MEJORADO** | 17 categorías (vs 7 originales). LLM clasifica mejor que keywords. |
+
+### Problemas funcionales (pendientes)
 
 | # | Hallazgo | Impacto | Remediación |
 |---|----------|---------|-------------|
-| P1 | **Parser solo regex, sin IA** | El plan menciona Claude API para extracción, pero `extractor.py` solo delega a regex. Confianza máxima 0.8. Muchos mensajes naturales fallarán. | Implementar integración con Groq LLM (ya tienes la key) o Claude API como parser primario, con regex como fallback. |
-| P2 | **Sin detección de duplicados** | Si Evolution reenvía un webhook (retry), se crean movimientos duplicados. | Agregar campo `message_id` (ID del mensaje de WhatsApp) y constraint UNIQUE, o deduplicar por mensaje_original + fecha_registro + user_id en ventana de tiempo. |
-| P3 | **Borrado inmediato sin confirmación** | `borra el último` elimina sin preguntar. Solo pide confirmación cuando hay múltiples candidatos. | Agregar confirmación: "¿Borrar $15.300 en Mercado? Responde sí/no." |
-| P4 | **Estado en memoria (no persistente)** | `_PENDIENTES` (confirmaciones pendientes) y `_numero_instancia` se pierden al reiniciar el server. | Guardar en Redis (ya disponible en el stack) o en DB. |
-| P5 | **Sin mensaje de bienvenida** | Un usuario nuevo autorizado no recibe indicación de cómo usar el bot. | Enviar mensaje de ayuda la primera vez que un usuario registrado escribe. |
-| P6 | **Sin soporte para correcciones del monto parseado** | Si el bot registra $15.000 pero el usuario quería $150.000, no hay un flujo corto para corregir. Tiene que usar el comando de edición. | Después de registrar, permitir "no, era 150 mil" como corrección del último registro. |
-| P7 | **Categoría "Otros" como cajón de sastre** | Muchos gastos caen en "Otros" porque las keywords son limitadas. | Ampliar keywords, considerar subcategorías, o usar IA para clasificación. |
+| P3 | **Borrado inmediato sin confirmación** | `borra el último` elimina sin preguntar (ahora es soft delete, reversible desde frontend). | Menos urgente: soft delete permite restaurar desde frontend. |
+| P4 | **Estado en memoria (no persistente)** | `_PENDIENTES` y `_numero_instancia` se pierden al reiniciar. | Guardar en Redis (ya disponible en el stack) o en DB. |
 
 ### Mejoras de UX pendientes
 
-- Resumen diario/semanal automático por WhatsApp
+- Exportar datos (CSV/PDF) desde frontend
+- Proyecciones financieras y detección de anomalías en frontend
 - Soporte para fotos de recibos (OCR futuro)
-- Comando "cuánto llevo este mes" / "cuánto gasté en transporte"
-- Emoji de categoría en las confirmaciones (🛒 Mercado, 🚕 Transporte, etc.)
-- Formato de fecha en confirmaciones (mostrar "hoy", "ayer" en vez de ISO)
 
 ---
 
 ## 5. Auditoría contable/financiera
 
+### Resueltos desde la última auditoría
+
+| # | Hallazgo | Estado | Cómo se resolvió |
+|---|----------|--------|------------------|
+| ~~C1~~ | Sin log de auditoría | **RESUELTO** | Tabla `audit_log` con accion, valores_anteriores/nuevos (JSON), origen, timestamp. Service `audit.py` con logging automático. |
+| ~~C2~~ | Sin soft delete | **RESUELTO** | Columna `eliminado_en` en movimientos y compras_cuotas. Property `.eliminado`. Queries filtran eliminados. |
+| ~~C3~~ | Presupuestos sin implementar | **RESUELTO** | Service `presupuesto.py` con CRUD, presupuesto_vs_real, alerta_presupuesto. Frontend con página dedicada y barras de progreso. |
+| ~~C5~~ | Sin separación de medios de pago | **RESUELTO** | Campo `medio_pago` en movimientos. |
+| ~~C6~~ | Sin manejo de gastos recurrentes | **RESUELTO** | Tabla `gastos_fijos` con CRUD, soporte compartido con porcentaje. |
+| ~~C8~~ | Sin categoría de ahorro | **RESUELTO** | Categorías "Ahorro" y "Deuda" agregadas. Tabla `deudas` para tracking de préstamos. |
+
+### Pendientes
+
 | # | Hallazgo | Impacto | Remediación |
 |---|----------|---------|-------------|
-| C1 | **Sin log de auditoría para ediciones/borrados** | El plan dice "auditable" pero no hay tabla de auditoría. Si se edita un monto o se borra un registro, no queda rastro de los valores anteriores. | Crear tabla `audit_log` con: movimiento_id, accion (crear/editar/borrar), valores_anteriores (JSON), valores_nuevos, timestamp, origen (whatsapp/admin). |
-| C2 | **Sin soft delete** | Los registros se borran con `db.delete()`. No hay papelera ni recuperación. | Agregar columna `eliminado_en` (nullable timestamp). Filtrar por defecto los eliminados. |
-| C3 | **Presupuestos sin implementar** | La tabla existe pero ningún código la usa. No hay alertas de límite ni proyecciones. | Implementar en Fase 4. |
-| C4 | **Sin balance acumulado** | No hay forma rápida de saber: total ingresos - total gastos = balance. | Agregar endpoint y comando WhatsApp para balance mensual/acumulado. |
-| C5 | **Sin separación de cuentas/billeteras** | Todo el dinero es una sola "bolsa". En Colombia es común separar: efectivo, cuenta bancaria, Nequi/Daviplata, tarjeta de crédito. | Agregar campo `medio_pago` al modelo de movimientos. |
-| C6 | **Sin manejo de gastos recurrentes** | Arriendo, servicios, suscripciones se registran manualmente cada mes. | Agregar tabla `recurrentes` con monto, frecuencia, siguiente_fecha. Bot pregunta cada mes "¿Pagaste el arriendo este mes?" |
-| C7 | **Fecha de gasto se asume como "hoy" si no se menciona** | Si alguien dice "gasté 50 mil en mercado" a las 11pm pero fue en la mañana, la fecha es correcta. Pero si lo dice al día siguiente sin decir "ayer", queda con fecha equivocada. | Esto es inherente al diseño (la fuente de verdad es el mensaje). Documentar la limitación y facilitar la corrección con "fecha del último: ayer". |
-| C8 | **Sin categoría de ahorro/inversión** | El modelo solo tiene gasto/ingreso. No hay concepto de transferencia entre cuentas, ahorro, o inversión. | Agregar tipo "transferencia" en categorías, o tabla separada de metas de ahorro. |
+| C7 | **Fecha de gasto se asume como "hoy"** | Inherente al diseño. El parser detecta "hoy", "ayer", "anteayer" y fechas explícitas, pero si no se dice, asume hoy. | Documentar limitación. Corrección disponible vía comando de edición o desde frontend. |
 
 ---
 
 ## 6. Auditoría de sistema
 
-| # | Hallazgo | Impacto | Remediación |
-|---|----------|---------|-------------|
-| T1 | **Sin backups** | Si el volumen de Docker se corrompe, se pierden todos los datos financieros. | Configurar pg_dump periódico (cron) a un directorio externo o cloud storage. |
-| T2 | **Sin monitoreo** | No hay health checks para Evolution, Redis, ni alertas si el bot deja de funcionar. | Agregar endpoint `/health/full` que verifique DB + Evolution + Redis. Cron o uptime monitor externo. |
-| T3 | **Redis no utilizado por la app** | Redis está en el stack para Evolution, pero la app no lo usa. Podría almacenar pendientes, caché, rate limiting. | Evaluar uso para `_PENDIENTES`, caché de categorías, rate limiting con `slowapi`. |
-| T4 | **Sin CI/CD** | No hay pipeline de tests automáticos ni deploy. | Agregar GitHub Actions para correr tests en PR. |
-| T5 | **Alembic corre en CMD del Dockerfile** | Si la migración falla, el container se cae. No hay rollback automático. | Separar migración del startup. Correr `alembic upgrade head` en un init container o script previo. |
-| T6 | **Sin `.dockerignore`** | Se copian `.env`, tests, `__pycache__`, `.git` al contenedor. | Crear `.dockerignore` con exclusiones apropiadas. |
+| # | Hallazgo | Impacto | Estado | Remediación |
+|---|----------|---------|--------|-------------|
+| T1 | **Sin backups** | Si el volumen de Docker se corrompe, se pierden todos los datos. | Pendiente | Configurar pg_dump periódico (cron) a directorio externo o cloud storage. |
+| T2 | **Sin monitoreo** | No hay alertas si el bot deja de funcionar. Health check básico existe (`/health`). | Parcial | Agregar `/health/full` que verifique DB + Evolution + Redis. Uptime monitor externo. |
+| T3 | **Redis no utilizado por la app** | Redis solo lo usa Evolution. La app podría usarlo para `_PENDIENTES`, rate limiting. | Pendiente | Evaluar migrar estado en memoria a Redis. |
+| T4 | **Sin CI/CD** | No hay pipeline de tests automáticos ni deploy. | Pendiente | Agregar GitHub Actions para correr tests en PR. |
+| T5 | **Alembic corre en CMD del Dockerfile** | Si la migración falla, el container se cae. | Pendiente | Separar migración del startup con init script. |
+| ~~T6~~ | ~~Sin `.dockerignore`~~ | ~~Se copiaban archivos innecesarios al contenedor.~~ | **RESUELTO** | `.dockerignore` existe en backend/ y frontend/. |
+| T7 | **Placeholders obsoletos** | `analytics/__init__.py` y `dashboard/app.py` son placeholders que ya no se usan (reemplazados por frontend Next.js). | Pendiente | Eliminar carpetas `analytics/` y `dashboard/`. |
 
 ---
 
 ## 7. Alcance
 
-### Dentro del alcance
+### WhatsApp — solo registro
+WhatsApp es exclusivamente el canal de entrada para registrar gastos e ingresos por texto o audio. Opcionalmente permite actualizar valores con comandos básicos (borrar, editar, listar). **No se implementarán comandos avanzados** (consultas de balance, presupuestos, resúmenes, alertas). Toda la gestión, análisis y visualización se hace desde el frontend Next.js.
+
+### Dentro del alcance (implementado)
 - Captura de gasto/ingreso por texto libre ("gasté 15.300 en el mercado").
 - Captura por nota de voz (transcripción automática vía Groq/Whisper).
-- Clasificación automática por categoría, editable.
-- Comandos conversacionales: borrar, editar, listar, cambiar categoría, ayuda.
-- Almacenamiento en PostgreSQL con migraciones Alembic.
-- Panel admin web con CRUD completo.
-- Dashboard con gráficos en tiempo real (pendiente).
-- Analítica en Python: proyecciones, promedios, anomalías (pendiente).
+- Clasificación automática por categoría (LLM + regex), editable. 17 categorías.
+- Comandos básicos WhatsApp: borrar, editar, listar, cambiar categoría, ayuda.
+- Almacenamiento en PostgreSQL con migraciones Alembic, soft delete, audit log.
+- Frontend Next.js con dashboard (KPIs, gráficos), CRUD completo, login 2FA.
+- Presupuestos mensuales por categoría con barras de progreso.
+- Gastos compartidos con balance entre usuarios.
+- Compras a cuotas (TDC) con tracking de pagos.
+- Gastos fijos recurrentes y deudas.
 - Soporte para dos usuarios con datos separados.
-- Skills de Claude Code para finanzas en Colombia.
+- 14 skills de Claude Code para finanzas en Colombia.
+
+### Dentro del alcance (pendiente)
+- Exportación de datos (CSV/PDF) desde frontend.
+- Proyecciones financieras y anomalías en frontend.
+- Seguridad: hashear password, rate limiting, CSP headers.
+- Infra: backups, CI/CD, logging estructurado.
 
 ### Fuera del alcance (explícitamente)
+- Comandos WhatsApp avanzados (consultas, resúmenes, alertas por WhatsApp).
 - Lectura de correos, SMS o notificaciones de compras.
 - Conexión a cuentas bancarias o tarjetas.
 - Multiusuario más allá de 2 personas.
@@ -167,128 +202,183 @@ Construir un sistema donde te envías a ti mismo (o tu pareja se envía) notas d
 ```
 ┌─────────────┐     texto/audio      ┌──────────────────┐
 │  WhatsApp   │ ───────────────────▶ │  Evolution API    │
-│ (tú/pareja) │                      │  (Baileys v2.3.7) │
+│ (Nico/Day)  │                      │  (Baileys v2.3.7) │
 └─────────────┘                      └────────┬──────────┘
-                                               │ webhook
+                                               │ webhook (apikey verificado)
                                                ▼
                                      ┌───────────────────┐
                                      │  FastAPI Backend   │
-                                     │  /webhook/evolution│
+                                     │  :8000             │
                                      └────────┬──────────┘
                                                │
                               ┌────────────────┼────────────────┐
                               ▼                ▼                ▼
                     ┌─────────────┐  ┌──────────────┐  ┌───────────┐
                     │ ¿Audio?     │  │ ¿Comando?    │  │ Parser    │
-                    │ → Groq API  │  │ → Ejecutar   │  │ Regex     │
-                    │   Whisper   │  │   CRUD       │  │ Extracción│
+                    │ → Groq API  │  │ → Ejecutar   │  │ LLM Groq  │
+                    │   Whisper   │  │   CRUD       │  │ + Regex   │
                     └──────┬──────┘  └──────┬───────┘  └─────┬─────┘
                            │               │                │
                            └───────────────┴────────────────┘
                                            │
                                            ▼
                               ┌───────────────────────┐
-                              │  PostgreSQL (Docker)   │
-                              │  + Redis (para Evol.)  │
+                              │  PostgreSQL 15 (:5433) │
+                              │  7 tablas + audit_log  │
                               └───────────┬───────────┘
                                           │
-                     ┌────────────────────┼────────────────────┐
-                     ▼                    ▼                    ▼
-            ┌──────────────┐   ┌──────────────────┐  ┌──────────────┐
-            │ Admin Panel  │   │ Dashboard        │  │ Analítica    │
-            │ (HTML/JS)    │   │ (Streamlit)      │  │ (Python)     │
-            │ IMPLEMENTADO │   │ PENDIENTE        │  │ PENDIENTE    │
-            └──────────────┘   └──────────────────┘  └──────────────┘
+                     ┌────────────────────┼────────────────┐
+                     ▼                    ▼                ▼
+            ┌──────────────┐   ┌──────────────────┐  ┌──────────┐
+            │ Admin legacy │   │ Frontend Next.js │  │ Redis 7  │
+            │ (HTML/JS)    │   │ :3000            │  │ (Evol.)  │
+            │ /admin       │   │ Dashboard+CRUD   │  │          │
+            └──────────────┘   │ Login 2FA TOTP   │  └──────────┘
+                               └──────────────────┘
 ```
 
 ---
 
 ## 10. Stack tecnológico
 
-| Componente | Implementado | Notas |
+| Componente | Tecnología | Estado |
 |---|---|---|
-| Canal WhatsApp | Evolution API v2.3.7 (Baileys, self-hosted) | Riesgo bajo de bloqueo para uso personal |
-| Backend / webhook | Python 3.12 + FastAPI | Docker container |
-| Transcripción de audio | Groq API (Whisper large-v3-turbo) | Gratis, requiere GROQ_API_KEY |
-| Extracción de datos | Regex + normalización de números | Plan: agregar LLM como parser primario |
-| Base de datos | PostgreSQL 15 (Docker) | Producción y tests |
-| ORM | SQLAlchemy 2.0 + Alembic | Migraciones versionadas |
-| Cache/Queue | Redis 7 (para Evolution) | Disponible para uso de la app |
-| Panel admin | HTML/JS vanilla con HTTP Basic Auth | CRUD movimientos, categorías, usuarios |
-| Dashboard | Streamlit (placeholder) | Por implementar |
-| Orquestación | Docker Compose | backend + postgres + evolution + redis |
+| Canal WhatsApp | Evolution API v2.3.7 (Baileys, self-hosted) | Implementado |
+| Backend / webhook | Python 3.12 + FastAPI + Uvicorn | Implementado |
+| Frontend / Dashboard | Next.js 16 + TypeScript + TailwindCSS + Shadcn/ui + Recharts | Implementado |
+| Transcripción de audio | Groq API (Whisper large-v3-turbo) | Implementado |
+| Extracción de datos | Groq LLM (Llama 3.3 70B) + regex fallback | Implementado |
+| Base de datos | PostgreSQL 15 (Docker, puerto 5433) | Implementado |
+| ORM | SQLAlchemy 2.0 + Alembic (4 migraciones) | Implementado |
+| Cache | Redis 7 (para Evolution) | Implementado (no usado por la app) |
+| Admin legacy | HTML/JS vanilla con cookies HttpOnly + TOTP 2FA | Implementado (reemplazado por frontend) |
+| Auth | Cookies HttpOnly + SameSite=strict + TOTP 2FA (pyotp) | Implementado |
+| Orquestación | Docker Compose (5 servicios: backend, postgres, evolution, redis, frontend) | Implementado |
+| Tests | pytest contra PostgreSQL real con SAVEPOINT isolation | 13 archivos de tests |
 
 ---
 
-## 11. Modelo de datos
+## 11. Modelo de datos (8 tablas)
 
 ```sql
--- Tabla de usuarios (tú y tu pareja)
+-- Usuarios (2: Nico y Day)
 CREATE TABLE users (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     nombre TEXT NOT NULL,
     numero_whatsapp TEXT UNIQUE NOT NULL
 );
 
--- Categorías (editables, con set inicial predefinido)
+-- Categorías (17 predefinidas, editables)
 CREATE TABLE categorias (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     nombre TEXT UNIQUE NOT NULL,
-    tipo TEXT CHECK(tipo IN ('gasto', 'ingreso')) DEFAULT 'gasto'
+    tipo TEXT CHECK(tipo IN ('gasto', 'ingreso')) DEFAULT 'gasto',
+    es_fijo BOOLEAN DEFAULT FALSE
 );
 
--- Registro de gastos/ingresos
+-- Registro de gastos/ingresos (tabla principal)
 CREATE TABLE movimientos (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     categoria_id INTEGER REFERENCES categorias(id),
     monto_cop INTEGER NOT NULL,
     descripcion TEXT,
-    mensaje_original TEXT NOT NULL,      -- texto o transcripción tal cual
+    mensaje_original TEXT NOT NULL,
     fue_audio BOOLEAN DEFAULT FALSE,
-    confianza_parsing REAL,               -- confianza del parser (0-1)
+    confianza_parsing REAL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    fecha_gasto DATE                      -- fecha real del gasto
+    fecha_gasto DATE,
+    eliminado_en TIMESTAMP,                -- soft delete
+    es_compartido BOOLEAN DEFAULT FALSE,
+    porcentaje_compartido INTEGER,
+    medio_pago TEXT,                        -- efectivo, nequi, TDC, etc.
+    compra_cuotas_id INTEGER REFERENCES compras_cuotas(id)
 );
 
--- Presupuestos mensuales por categoría (SIN IMPLEMENTAR en código)
+-- Presupuestos mensuales por categoría
 CREATE TABLE presupuestos (
-    id INTEGER PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     categoria_id INTEGER REFERENCES categorias(id),
     monto_limite_cop INTEGER NOT NULL,
-    mes_vigente TEXT -- formato 'YYYY-MM'
+    mes_vigente TEXT,                       -- 'YYYY-MM'
+    UNIQUE (user_id, categoria_id, mes_vigente)
 );
-```
 
-### Tablas pendientes de crear
-
-```sql
--- Auditoría de cambios (hallazgo C1)
-CREATE TABLE audit_log (
+-- Compras a cuotas (tarjeta de crédito)
+CREATE TABLE compras_cuotas (
     id SERIAL PRIMARY KEY,
-    tabla TEXT NOT NULL,               -- 'movimientos', 'categorias', etc.
-    registro_id INTEGER NOT NULL,
-    accion TEXT NOT NULL,              -- 'crear', 'editar', 'borrar'
-    valores_anteriores JSONB,
-    valores_nuevos JSONB,
-    origen TEXT DEFAULT 'whatsapp',    -- 'whatsapp', 'admin', 'sistema'
     user_id INTEGER REFERENCES users(id),
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_compra DATE,
+    establecimiento TEXT,
+    descripcion TEXT,
+    valor_total_cop INTEGER,
+    num_cuotas INTEGER,
+    cuotas_pagadas INTEGER DEFAULT 0,
+    valor_cuota_cop INTEGER,
+    valor_intereses_cop INTEGER DEFAULT 0,
+    tasa_ea REAL,
+    numero_transaccion TEXT,
+    tarjeta TEXT,
+    saldo_pendiente_cop INTEGER,
+    liquidada BOOLEAN DEFAULT FALSE,
+    fecha_ultima_cuota DATE,
+    eliminado_en TIMESTAMP                 -- soft delete
 );
 
--- Gastos recurrentes (hallazgo C6)
-CREATE TABLE recurrentes (
+-- Deudas (personal, tarjeta, crédito)
+CREATE TABLE deudas (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    nombre TEXT NOT NULL,
+    tipo TEXT CHECK(tipo IN ('personal', 'tarjeta', 'credito')),
+    acreedor TEXT,
+    monto_original_cop INTEGER,
+    saldo_cop INTEGER,
+    cuota_mensual_cop INTEGER,
+    tasa_ea REAL,
+    activa BOOLEAN DEFAULT TRUE,
+    fecha_inicio DATE,
+    fecha_limite DATE,
+    notas TEXT
+);
+
+-- Gastos fijos recurrentes (arriendo, servicios, suscripciones)
+CREATE TABLE gastos_fijos (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     categoria_id INTEGER REFERENCES categorias(id),
+    nombre TEXT NOT NULL,
     monto_cop INTEGER NOT NULL,
-    descripcion TEXT,
-    frecuencia TEXT DEFAULT 'mensual',  -- 'mensual', 'quincenal', 'semanal'
-    dia_del_mes INTEGER,
-    activo BOOLEAN DEFAULT TRUE
+    es_compartido BOOLEAN DEFAULT FALSE,
+    porcentaje_compartido INTEGER,
+    activo BOOLEAN DEFAULT TRUE,
+    dia_esperado INTEGER,
+    UNIQUE (user_id, nombre)
+);
+
+-- Auditoría de cambios (cada crear/editar/borrar)
+CREATE TABLE audit_log (
+    id SERIAL PRIMARY KEY,
+    tabla TEXT NOT NULL,
+    registro_id INTEGER NOT NULL,
+    accion TEXT NOT NULL,              -- 'crear', 'editar', 'borrar'
+    valores_anteriores JSON,
+    valores_nuevos JSON,
+    origen TEXT DEFAULT 'whatsapp',    -- 'whatsapp', 'admin'
+    user_id INTEGER,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+### Migraciones Alembic (4)
+
+| # | Migración | Contenido |
+|---|-----------|-----------|
+| 001 | `initial_schema` | users, categorias, movimientos, presupuestos + 15 categorías seed |
+| 002 | `audit_log` | Tabla audit_log con JSON + índice (tabla, registro_id) |
+| 003 | `soft_delete` | Columna `eliminado_en` en movimientos |
+| 004 | `enhanced_model` | compras_cuotas, deudas, gastos_fijos + es_fijo, compartido, medio_pago + 10 categorías nuevas |
 
 ---
 
@@ -321,22 +411,28 @@ CREATE TABLE recurrentes (
 - [x] Escapar HTML en admin (XSS)
 - [x] Verificar firma de webhook Evolution
 - [x] Endpoints protegidos con auth
-- [x] .dockerignore
 - [x] Tabla audit_log con logging automático
 - [x] Detección de duplicados en webhook
 - [x] Auth migrada a cookies HttpOnly + 2FA TOTP
 - [x] Login/Logout con página dedicada
 - [x] Soft delete para movimientos y cuotas
+- [x] `.dockerignore` en backend y frontend
 - [ ] Cambiar credenciales DB (S4) — acción manual del usuario
+- [ ] Hashear contraseña admin (S14) — actualmente plaintext con compare_digest
 
-### Fase 6 — Pendiente
-- [ ] Comandos WhatsApp: "presupuesto mercado 500 mil", "cuánto llevo", "resumen del mes"
-- [ ] Alertas de presupuesto por WhatsApp al registrar gasto (backend listo, integración pendiente)
-- [ ] Resumen semanal automático por WhatsApp
-- [ ] Tests frontend (Jest + React Testing Library)
-- [ ] CI/CD (GitHub Actions)
-- [ ] Exportar datos (CSV/PDF)
-- [ ] Proyecciones financieras y detección de anomalías
+### Fase 6 — Limpieza, seguridad e infraestructura (EN PROGRESO)
+- [x] Limpiar placeholders obsoletos (`analytics/`, `dashboard/`)
+- [x] Hashear contraseña admin con bcrypt (`ADMIN_PASSWORD_HASH`)
+- [x] Rate limiting por IP (slowapi: webhook 30/min, login 5/min)
+- [x] CSP + security headers (X-Content-Type-Options, X-Frame-Options, CSP)
+- [x] Protección fuerza bruta en login (lockout 5min tras 10 intentos)
+- [x] Backups automáticos (pg_dump cada 12h, retención 7 días, servicio `db-backup`)
+- [x] Migrar `_PENDIENTES` y `_MSG_IDS` a Redis (fallback in-memory si Redis no disponible)
+- [x] CI/CD (GitHub Actions: pytest + PostgreSQL en PRs)
+- [x] Logging estructurado JSON (`logging_config.py`)
+- [x] Tests E2E frontend con Playwright (24 tests, skill `/qa`)
+- [ ] Exportar datos (CSV/PDF) desde frontend
+- [ ] Proyecciones financieras y detección de anomalías en frontend
 
 ### Fase 7 — Skills Claude Code y MCP (COMPLETADA 2026-09-01)
 - [x] 14 skills creados (.claude/commands/)
@@ -472,55 +568,65 @@ finanzas_personales/
 ├── .env                    # Secretos (NO commitear)
 ├── .env.example            # Template de configuración
 ├── .gitignore
-├── docker-compose.yml      # backend + postgres + evolution + redis
+├── docker-compose.yml      # 5 servicios: backend + postgres + evolution + redis + frontend
+├── CLAUDE.md               # Instrucciones para Claude Code
+│
 ├── backend/
 │   ├── Dockerfile
-│   ├── main.py             # FastAPI app + webhooks
-│   ├── config.py           # Pydantic settings
-│   ├── tiempo.py           # Utilidades de timezone Bogotá
+│   ├── main.py             # FastAPI app (177 líneas) — webhooks, health, QR
+│   ├── config.py           # Pydantic settings (12 keys)
+│   ├── tiempo.py           # Timezone Bogotá
 │   ├── requirements.txt
 │   ├── alembic.ini
 │   ├── pytest.ini
 │   ├── admin/
-│   │   ├── auth.py         # HTTP Basic Auth
-│   │   ├── router.py       # CRUD endpoints admin
-│   │   └── index.html      # Panel admin SPA
+│   │   ├── auth.py         # Cookies HttpOnly + TOTP 2FA + sesiones
+│   │   ├── router.py       # CRUD endpoints admin (600+ líneas)
+│   │   ├── index.html      # Panel admin legacy (dark theme)
+│   │   └── login.html      # Página de login dedicada
 │   ├── db/
-│   │   ├── models.py       # SQLAlchemy models
+│   │   ├── models.py       # 8 modelos SQLAlchemy (241 líneas)
 │   │   ├── session.py      # Engine y session factory
-│   │   ├── seed.py         # Categorías iniciales
+│   │   ├── seed.py         # 17 categorías iniciales
 │   │   ├── users_seed.py   # Seed de usuarios desde .env
 │   │   └── migrations/
 │   │       ├── env.py
 │   │       └── versions/
-│   │           └── 001_initial_schema.py
+│   │           ├── 001_initial_schema.py
+│   │           ├── 002_audit_log.py
+│   │           ├── 003_soft_delete.py
+│   │           └── 004_enhanced_model.py
 │   ├── parser/
-│   │   ├── extractor.py    # Punto de entrada (delega a regex)
-│   │   ├── fallback_regex.py  # Parser principal actual
-│   │   ├── categorias.py   # Keywords por categoría
-│   │   ├── mensajes.py     # Formato de respuestas
+│   │   ├── extractor.py    # Punto de entrada (LLM → regex fallback)
+│   │   ├── llm.py          # Parser Groq LLM (Llama 3.3 70B)
+│   │   ├── fallback_regex.py  # Parser regex (fallback)
+│   │   ├── categorias.py   # 17 categorías con keywords
+│   │   ├── mensajes.py     # Formato de respuestas WhatsApp
 │   │   ├── numeros_hablados.py  # "veinte mil" → 20000
 │   │   └── schemas.py      # Dataclass Extraccion
 │   ├── services/
-│   │   ├── admin.py        # Lógica CRUD admin
+│   │   ├── admin.py        # CRUD admin con cascading y audit
 │   │   ├── audio.py        # Orquestación de transcripción
+│   │   ├── audit.py        # Logging a tabla audit_log
+│   │   ├── balance.py      # Cálculo balance compartido Nico-Day
 │   │   ├── comandos.py     # Sistema de comandos WhatsApp
+│   │   ├── cuotas.py       # CRUD compras a cuotas TDC
+│   │   ├── gastos_fijos.py # CRUD gastos fijos recurrentes
+│   │   ├── presupuesto.py  # CRUD presupuestos + alertas
 │   │   ├── registro.py     # Pipeline principal de registro
 │   │   └── resultado.py    # Dataclass ResultadoRegistro
 │   ├── transcription/
-│   │   └── whisper_client.py  # Groq API para transcripción
+│   │   └── whisper_client.py  # Groq Whisper API
 │   ├── webhook/
 │   │   ├── client.py       # Cliente Evolution API
 │   │   ├── evolution.py    # Parser de payloads Evolution
 │   │   ├── media.py        # Descarga de audio
 │   │   ├── qr_page.py      # HTML para escanear QR
 │   │   └── sender.py       # Envío de mensajes WhatsApp
-│   ├── scripts/
-│   │   └── (vacío)
 │   └── tests/
-│       ├── conftest.py
+│       ├── conftest.py         # Fixtures PostgreSQL SAVEPOINT
 │       ├── test_admin.py
-│       ├── test_comandos.py
+│       ├── test_comandos.py    # (17KB, el más extenso)
 │       ├── test_health.py
 │       ├── test_mensajes.py
 │       ├── test_migrations.py
@@ -530,45 +636,56 @@ finanzas_personales/
 │       ├── test_tiempo.py
 │       ├── test_transcripcion.py
 │       └── test_webhook.py
-├── analytics/
-│   └── __init__.py         # Placeholder
-├── dashboard/
-│   └── app.py              # Placeholder
+│
+├── frontend/                # Next.js 16 + TypeScript + TailwindCSS
+│   ├── Dockerfile           # Multi-stage build
+│   ├── package.json
+│   ├── next.config.ts
+│   ├── components.json      # Shadcn/ui config
+│   └── src/app/
+│       ├── layout.tsx
+│       ├── page.tsx          # Dashboard (KPIs, gráficos, tendencias)
+│       ├── login/
+│       ├── movimientos/
+│       ├── categorias/
+│       ├── usuarios/
+│       ├── presupuestos/
+│       ├── compartido/       # Balance gastos compartidos
+│       ├── cuotas/           # Compras a cuotas TDC
+│       ├── gastos-fijos/
+│       └── api/              # Proxy routes al backend
+│
+├── .claude/
+│   └── commands/            # 14 skills para Claude Code
+│       ├── parser.md, db.md, webhook.md, admin.md, testing.md
+│       ├── design.md, architecture.md, security.md
+│       ├── finanzas-co.md, presupuesto.md, ahorro.md
+│       ├── impuestos.md, mercado.md, sprint.md
+│
+├── analytics/               # OBSOLETO — placeholder vacío
+│   └── __init__.py
+├── dashboard/               # OBSOLETO — reemplazado por frontend/
+│   └── app.py
 ├── docs/
-│   └── plan-proyecto-finanzas-whatsapp.md  # Este archivo
+│   └── plan-proyecto-finanzas-whatsapp.md
 └── postgres/
-    └── init-finanzas.sh    # Init script para crear DB finanzas
+    └── init-finanzas.sh     # Init script para crear DB finanzas
 ```
 
 ---
 
-## 17. Prioridades de acción inmediata
+## 17. Prioridades de acción (actualizado 2026-09-02)
 
-### Sprint 1 — Seguridad (URGENTE)
-1. Rotar API keys si el repo se compartió alguna vez
-2. Escapar HTML en admin panel (XSS)
-3. Agregar verificación de webhook
-4. Crear `.dockerignore`
-5. Cambiar credenciales de DB
+### ~~Sprint 1 — Seguridad~~ COMPLETADO
+### ~~Sprint 2 — Integridad contable~~ COMPLETADO
+### ~~Sprint 3 — Dashboard~~ COMPLETADO (Next.js)
+### ~~Sprint 4 — Parser inteligente~~ COMPLETADO (Groq LLM)
 
-### Sprint 2 — Integridad contable
-1. Crear tabla `audit_log` + migración Alembic
-2. Implementar soft delete
-3. Agregar detección de duplicados de webhook
-4. Agregar campo `message_id` a movimientos
+### ~~Sprint 5 — Limpieza y seguridad~~ COMPLETADO
+### ~~Sprint 6 — Infraestructura y calidad~~ COMPLETADO
 
-### Sprint 3 — Dashboard MVP
-1. Implementar Streamlit dashboard
-2. Gráficos: por categoría, por mes, balance
-3. Filtros por usuario y rango de fechas
-
-### Sprint 4 — Parser inteligente
-1. Integrar Groq LLM como parser primario
-2. Mejorar categorización
-3. Soporte para mensajes complejos
-
-### Sprint 5 — Presupuestos y analítica
-1. Activar lógica de presupuestos
-2. Alertas de límite por WhatsApp
-3. Resumen semanal automático
-4. Proyección de cierre de mes
+### Sprint 7 — Analítica y exportación (PRÓXIMO)
+1. Exportar datos (CSV/PDF) desde frontend
+2. Proyecciones financieras (cierre de mes)
+3. Detección de anomalías en gastos
+4. MCP a la base de datos para Claude Code

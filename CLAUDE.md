@@ -25,8 +25,11 @@ docker compose build backend && docker compose up -d backend
 # Logs del backend
 docker compose logs backend --tail 30
 
-# Tests (requiere Postgres corriendo en localhost:5433)
+# Tests backend (requiere Postgres corriendo en localhost:5433)
 cd backend && python -m pytest tests/ -q
+
+# Tests E2E frontend (requiere stack completo corriendo)
+cd frontend && npx playwright test
 
 # Migraciones
 cd backend && alembic upgrade head
@@ -71,6 +74,7 @@ Usa `/nombre-del-skill` para invocar contexto especializado:
 ### Desarrollo
 - `/parser` — Reglas del parser de mensajes, regex, numeros hablados
 - `/db` — Esquema PostgreSQL, Alembic, SQLAlchemy patterns
+- `/qa` — QA Automation con Playwright, E2E tests, selectores del frontend
 - `/webhook` — Evolution API, WhatsApp, media, sender
 - `/admin` — Panel admin, auth, CRUD, UI patterns
 - `/testing` — Pytest con PostgreSQL SAVEPOINT, fixtures, patterns

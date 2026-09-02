@@ -1,4 +1,4 @@
-from collections import OrderedDict
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from secrets import compare_digest
@@ -7,11 +7,16 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from admin.router import router as admin_router
+from cache import msg_ya_visto
 from config import settings
+from logging_config import setup_logging
 from db.session import get_db
 from db.users_seed import seed_authorized_users
 from services.audio import transcribir_nota_voz
@@ -26,6 +31,11 @@ from webhook.evolution import extraer_mensaje_entrada
 from webhook.qr_page import QR_HTML
 from webhook.sender import enviar_texto_whatsapp
 
+setup_logging()
+logger = logging.getLogger(__name__)
+
+limiter = Limiter(key_func=get_remote_address)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -35,21 +45,25 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(admin_router)
 
-_MSG_IDS_VISTOS: OrderedDict[str, None] = OrderedDict()
-_MSG_IDS_MAX = 500
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none'"
+    )
+    return response
 
-def _ya_procesado(message_id: str | None) -> bool:
-    if not message_id:
-        return False
-    if message_id in _MSG_IDS_VISTOS:
-        return True
-    _MSG_IDS_VISTOS[message_id] = None
-    if len(_MSG_IDS_VISTOS) > _MSG_IDS_MAX:
-        _MSG_IDS_VISTOS.popitem(last=False)
-    return False
 
 
 class TextoIn(BaseModel):
@@ -133,7 +147,9 @@ def _verify_webhook(
 
 
 @app.post("/webhook/evolution")
+@limiter.limit("30/minute")
 def webhook_evolution(
+    request: Request,
     payload: dict[str, Any],
     db: Session = Depends(get_db),
     _auth: None = Depends(_verify_webhook),
@@ -144,7 +160,7 @@ def webhook_evolution(
     )
     if extraido is None:
         return {"status": "ignored"}
-    if _ya_procesado(extraido.message_id):
+    if msg_ya_visto(extraido.message_id):
         return {"status": "duplicate"}
     texto = extraido.texto
     fue_audio = extraido.es_audio
