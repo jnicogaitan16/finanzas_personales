@@ -45,3 +45,102 @@ jobs:
         run: python -m pytest tests/ -q
         env:
           DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
+
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    needs: backend
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: evolution
+          POSTGRES_PASSWORD: evolution
+          POSTGRES_DB: evolution
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U evolution"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create finanzas database
+        run: PGPASSWORD=evolution psql -h localhost -p 5433 -U evolution -c "CREATE DATABASE finanzas;"
+
+      # --- Backend ---
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run migrations
+        working-directory: backend
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
+
+      - name: Start backend
+        working-directory: backend
+        run: |
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 3
+          curl -f http://localhost:8000/health
+        env:
+          DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
+          ADMIN_USER: admin
+          ADMIN_PASSWORD: testpass123
+          EVOLUTION_API_URL: ""
+          EVOLUTION_API_KEY: ""
+
+      # --- Frontend ---
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          BACKEND_URL: http://localhost:8000
+
+      - name: Start frontend
+        working-directory: frontend
+        run: |
+          npm start &
+          sleep 3
+          curl -f http://localhost:3000/login
+        env:
+          BACKEND_URL: http://localhost:8000
+
+      # --- Playwright ---
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        working-directory: frontend
+        run: npx playwright test --reporter=html
+        env:
+          BASE_URL: http://localhost:3000
+          ADMIN_USER: admin
+          ADMIN_PASSWORD: testpass123
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
