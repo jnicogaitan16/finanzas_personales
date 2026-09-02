@@ -436,9 +436,22 @@ CREATE TABLE audit_log (
 - [x] Detección de anomalías (gastos >2x promedio de categoría, card en dashboard)
 
 ### Fase 7 — Skills Claude Code y MCP (COMPLETADA 2026-09-01)
-- [x] 14 skills creados (.claude/commands/)
+- [x] 14 skills creados (.claude/commands/) + skill `/qa`
 - [x] CLAUDE.md con contexto del proyecto
 - [ ] MCP a la base de datos (evaluado, pendiente implementar)
+
+### Fase 8 — Deploy a producción (EN PROGRESO)
+- [x] Rama `dev` creada y protegida (requiere PR + CI)
+- [x] Pipelines CI independientes para dev y main
+- [x] Pipeline deploy automático a Oracle Cloud via SSH
+- [x] docker-compose.prod.yml con Caddy (HTTPS automático)
+- [x] Guía de deploy Oracle Cloud Free Tier (`docs/deploy-oracle-cloud.md`)
+- [x] .env.production.example con todas las variables
+- [x] Script de setup del server (`scripts/server-setup.sh`)
+- [ ] Crear VM en Oracle Cloud (acción manual del usuario)
+- [ ] Configurar dominio (DuckDNS o propio)
+- [ ] Configurar GitHub Secrets (DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY)
+- [ ] Primer deploy a producción
 
 ---
 
@@ -686,4 +699,12 @@ finanzas_personales/
 ### ~~Sprint 6 — Infraestructura y calidad~~ COMPLETADO
 
 ### ~~Sprint 7 — Analítica y exportación~~ COMPLETADO
+
+### Sprint 8 — Deploy a Oracle Cloud (PRÓXIMO)
+1. Crear VM Oracle Cloud Free Tier (ARM 2 OCPU + 12GB)
+2. Ejecutar `scripts/server-setup.sh`
+3. Configurar `.env.production` con credenciales seguras
+4. Configurar dominio (DuckDNS gratis)
+5. `docker compose -f docker-compose.prod.yml up -d`
+6. Configurar GitHub Secrets para deploy automático
 4. MCP a la base de datos para Claude Code

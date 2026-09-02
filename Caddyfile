@@ -1,0 +1,27 @@
+{$DOMAIN} {
+	# Frontend (Next.js)
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	# Backend API — proxy directo para webhooks de Evolution
+	handle /webhook/* {
+		reverse_proxy backend:8000
+	}
+
+	# Backend admin API — el frontend ya proxea via /api/*
+	# pero el admin legacy necesita acceso directo
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+
+	# Health check
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	# WhatsApp QR
+	handle /whatsapp/* {
+		reverse_proxy backend:8000
+	}
+}
