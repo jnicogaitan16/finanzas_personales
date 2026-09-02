@@ -48,15 +48,15 @@ export default function LoginPage() {
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <label className="text-sm text-muted-foreground">
             Usuario
-            <Input name="username" required autoFocus className="mt-1" />
+            <Input name="username" autoComplete="username" required autoFocus className="mt-1" />
           </label>
           <label className="text-sm text-muted-foreground">
             Contrasena
-            <Input name="password" type="password" required className="mt-1" />
+            <Input name="password" type="password" autoComplete="current-password" required className="mt-1" />
           </label>
           <label className="text-sm text-muted-foreground">
             Codigo 2FA
-            <Input name="totp_code" inputMode="numeric" maxLength={6} placeholder="000000" className="mt-1" />
+            <Input name="totp_code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" className="mt-1" />
             <span className="text-xs text-muted-foreground">Abre tu app de autenticacion</span>
           </label>
           <Button type="submit" disabled={loading} className="w-full">
