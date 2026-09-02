@@ -1,0 +1,35 @@
+name: Deploy Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    # Only deploy after tests pass
+    needs: []
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # SSH into Oracle Cloud VM and pull + rebuild
+      # Requires these secrets configured in GitHub:
+      #   DEPLOY_HOST: IP of Oracle VM
+      #   DEPLOY_USER: SSH user (e.g. ubuntu)
+      #   DEPLOY_KEY: SSH private key
+      - name: Deploy via SSH
+        if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            cd ~/finanzas_personales
+            git pull origin main
+            docker compose build
+            docker compose up -d
+            echo "Deploy completado: $(date)"
