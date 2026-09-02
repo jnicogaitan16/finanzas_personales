@@ -6,6 +6,7 @@ import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
 import { formatCOP, formatDate } from "@/lib/format"
 import type { Movimiento, Categoria, Usuario } from "@/lib/types"
+import { Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -216,6 +217,18 @@ export default function MovimientosPage() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const a = document.createElement("a")
+              a.href = "/api/movimientos/export"
+              a.download = "movimientos.csv"
+              a.click()
+            }}
+          >
+            <Download className="w-4 h-4 mr-1.5" />
+            CSV
+          </Button>
           <Button onClick={openCreate}>Nuevo movimiento</Button>
         </div>
       </div>

@@ -431,8 +431,9 @@ CREATE TABLE audit_log (
 - [x] CI/CD (GitHub Actions: pytest + PostgreSQL en PRs)
 - [x] Logging estructurado JSON (`logging_config.py`)
 - [x] Tests E2E frontend con Playwright (24 tests, skill `/qa`)
-- [ ] Exportar datos (CSV/PDF) desde frontend
-- [ ] Proyecciones financieras y detección de anomalías en frontend
+- [x] Exportar datos CSV desde frontend (botón en movimientos + endpoint backend)
+- [x] Proyecciones financieras de cierre de mes (card en dashboard)
+- [x] Detección de anomalías (gastos >2x promedio de categoría, card en dashboard)
 
 ### Fase 7 — Skills Claude Code y MCP (COMPLETADA 2026-09-01)
 - [x] 14 skills creados (.claude/commands/)
@@ -684,8 +685,5 @@ finanzas_personales/
 ### ~~Sprint 5 — Limpieza y seguridad~~ COMPLETADO
 ### ~~Sprint 6 — Infraestructura y calidad~~ COMPLETADO
 
-### Sprint 7 — Analítica y exportación (PRÓXIMO)
-1. Exportar datos (CSV/PDF) desde frontend
-2. Proyecciones financieras (cierre de mes)
-3. Detección de anomalías en gastos
+### ~~Sprint 7 — Analítica y exportación~~ COMPLETADO
 4. MCP a la base de datos para Claude Code
