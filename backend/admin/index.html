@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin — Finanzas</title>
+  <style>
+    :root { --bg:#0f1115; --card:#181c24; --line:#2a3140; --txt:#eef1f6; --muted:#93a0b5; --acc:#6ee7b7; --danger:#f87171; --warn:#fbbf24; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+    header { padding:1.2rem 1.5rem; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
+    h1 { margin:0; font-size:1.2rem; }
+    h1 span { color:var(--acc); }
+    nav { display:flex; gap:.4rem; }
+    nav button, .btn { background:transparent; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:.4rem .8rem; cursor:pointer; }
+    nav button.active, .btn.primary { background:var(--acc); color:#04291c; border-color:var(--acc); font-weight:600; }
+    .btn.danger { border-color:var(--danger); color:var(--danger); }
+    .btn.logout { border-color:var(--muted); color:var(--muted); font-size:.8rem; }
+    .btn.logout:hover { border-color:var(--danger); color:var(--danger); }
+    .header-right { display:flex; align-items:center; gap:.8rem; }
+    main { padding:1.2rem 1.5rem 3rem; max-width:1200px; margin:auto; }
+    .toolbar { display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:1rem; align-items:end; }
+    label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color:var(--muted); }
+    input, select { background:var(--card); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:.45rem .6rem; min-width:8rem; }
+    table { width:100%; border-collapse:collapse; background:var(--card); border-radius:12px; overflow:hidden; }
+    th, td { text-align:left; padding:.7rem .8rem; border-bottom:1px solid var(--line); font-size:.9rem; }
+    th { color:var(--muted); font-weight:600; font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .ingreso { color:var(--acc); }
+    .gasto { color:#fda4af; }
+    dialog { border:none; border-radius:12px; background:var(--card); color:var(--txt); padding:1.2rem; width:min(440px, 92vw); }
+    dialog::backdrop { background:#0008; }
+    .form { display:flex; flex-direction:column; gap:.7rem; }
+    .actions { display:flex; gap:.4rem; justify-content:flex-end; margin-top:.6rem; }
+    .msg { color:var(--warn); min-height:1.2rem; }
+    .hint { color:var(--muted); font-size:.85rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Finanzas <span>admin</span></h1>
+    <div class="header-right">
+      <nav>
+        <button class="active" data-tab="movimientos">Movimientos</button>
+        <button data-tab="categorias">Categorías</button>
+        <button data-tab="usuarios">Usuarios</button>
+      </nav>
+      <a href="/admin/totp-setup" class="btn" style="font-size:.8rem;text-decoration:none">2FA</a>
+      <a href="/admin/logout" class="btn logout">Salir</a>
+    </div>
+  </header>
+  <main>
+    <p class="msg" id="msg"></p>
+
+    <section id="tab-movimientos">
+      <div class="toolbar">
+        <label>Usuario
+          <select id="filtro-user"><option value="">Todos</option></select>
+        </label>
+        <button class="btn primary" id="btn-nuevo-mov">Nuevo movimiento</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Fecha</th><th>Usuario</th><th>Categoría</th><th>Monto</th><th>Descripción</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-mov"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-categorias" hidden>
+      <div class="toolbar">
+        <button class="btn primary" id="btn-nueva-cat">Nueva categoría</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th><th></th></tr></thead>
+        <tbody id="tbody-cat"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-usuarios" hidden>
+      <div class="toolbar">
+        <button class="btn primary" id="btn-nuevo-user">Nuevo usuario</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>WhatsApp</th><th></th></tr></thead>
+        <tbody id="tbody-user"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <dialog id="dlg">
+    <form class="form" id="form-dlg">
+      <h2 id="dlg-title" style="margin:0 0 .4rem">Editar</h2>
+      <div id="dlg-fields"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="dlg-cancel">Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let usuarios = [];
+    let categorias = [];
+    let movimientos = [];
+    let editando = null;
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      });
+      if (res.status === 401) { window.location.href = "/admin/login"; throw new Error("401"); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      return data;
+    }
+
+    function esc(s) {
+      if (s == null) return "";
+      const d = document.createElement("div");
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function cop(n) {
+      return "$" + Number(n).toLocaleString("es-CO");
+    }
+
+    function showMsg(t) { $("msg").textContent = t || ""; }
+
+    function field(label, html) {
+      return `<label>${esc(label)}${html}</label>`;
+    }
+
+    async function loadAll() {
+      [usuarios, categorias, movimientos] = await Promise.all([
+        api("/admin/api/usuarios"),
+        api("/admin/api/categorias"),
+        api("/admin/api/movimientos"),
+      ]);
+      const filtro = $("filtro-user");
+      const actual = filtro.value;
+      filtro.innerHTML = `<option value="">Todos</option>` + usuarios.map(u => `<option value="${u.id}">${esc(u.nombre)}</option>`).join("");
+      filtro.value = actual;
+      render();
+    }
+
+    function render() {
+      const uid = $("filtro-user").value;
+      const rows = movimientos.filter(m => !uid || String(m.user_id) === uid);
+      $("tbody-mov").innerHTML = rows.map(m => `
+        <tr>
+          <td class="mono">#${m.id}</td>
+          <td>${esc(m.fecha_gasto)}<br><span class="hint">${esc(m.fecha_registro)}</span></td>
+          <td>${esc(m.usuario)}</td>
+          <td>${esc(m.categoria) || "—"}</td>
+          <td class="mono ${m.tipo === "ingreso" ? "ingreso" : "gasto"}">${esc(m.monto_fmt) || cop(m.monto_cop)}</td>
+          <td>${esc(m.descripcion)}<br><span class="hint">${esc(m.mensaje_original)}</span></td>
+          <td>
+            <button class="btn" onclick="editarMov(${m.id})">Editar</button>
+            <button class="btn danger" onclick="borrar('/admin/api/movimientos/${m.id}')">Borrar</button>
+          </td>
+        </tr>`).join("") || `<tr><td colspan="7">Sin movimientos</td></tr>`;
+
+      $("tbody-cat").innerHTML = categorias.map(c => `
+        <tr>
+          <td class="mono">#${c.id}</td><td>${esc(c.nombre)}</td><td>${esc(c.tipo)}</td>
+          <td>
+            <button class="btn" onclick="editarCat(${c.id})">Editar</button>
+            <button class="btn danger" onclick="borrar('/admin/api/categorias/${c.id}')">Borrar</button>
+          </td>
+        </tr>`).join("");
+
+      $("tbody-user").innerHTML = usuarios.map(u => `
+        <tr>
+          <td class="mono">#${u.id}</td><td>${esc(u.nombre)}</td><td class="mono">${esc(u.numero_whatsapp)}</td>
+          <td>
+            <button class="btn" onclick="editarUser(${u.id})">Editar</button>
+            <button class="btn danger" onclick="borrar('/admin/api/usuarios/${u.id}')">Borrar</button>
+          </td>
+        </tr>`).join("");
+    }
+
+    async function borrar(path) {
+      if (!confirm("¿Borrar este registro?")) return;
+      try { await api(path, { method: "DELETE" }); showMsg("Borrado"); await loadAll(); }
+      catch (e) { showMsg(e.message); }
+    }
+
+    function abrir(title, html, onsubmit) {
+      $("dlg-title").textContent = title;
+      $("dlg-fields").innerHTML = html;
+      $("dlg").showModal();
+      $("form-dlg").onsubmit = async (ev) => {
+        ev.preventDefault();
+        try { await onsubmit(new FormData(ev.target)); $("dlg").close(); await loadAll(); showMsg("Guardado"); }
+        catch (e) { showMsg(e.message); }
+      };
+    }
+
+    window.editarMov = (id) => {
+      const m = id ? movimientos.find(x => x.id === id) : null;
+      const userOpts = usuarios.map(u => `<option value="${u.id}" ${m && u.id===m.user_id?"selected":""}>${esc(u.nombre)}</option>`).join("");
+      const catOpts = `<option value="">—</option>` + categorias.map(c => `<option value="${c.id}" ${m && c.id===m.categoria_id?"selected":""}>${esc(c.nombre)}</option>`).join("");
+      abrir(m ? `Editar #${m.id}` : "Nuevo movimiento",
+        field("Usuario", `<select name="user_id" required>${userOpts}</select>`) +
+        field("Categoría", `<select name="categoria_id">${catOpts}</select>`) +
+        field("Monto COP", `<input name="monto_cop" type="number" min="1" required value="${m?m.monto_cop:""}">`) +
+        field("Descripción", `<input name="descripcion" value="${m? esc(m.descripcion||"") : ""}">`) +
+        field("Fecha del gasto", `<input name="fecha_gasto" type="date" value="${m? esc(m.fecha_gasto||"") : ""}">`) +
+        field("Mensaje original", `<input name="mensaje_original" value="${m? esc(m.mensaje_original||"") : ""}">`),
+        async (fd) => {
+          const body = {
+            user_id: Number(fd.get("user_id")),
+            categoria_id: fd.get("categoria_id") ? Number(fd.get("categoria_id")) : null,
+            monto_cop: Number(fd.get("monto_cop")),
+            descripcion: fd.get("descripcion") || null,
+            fecha_gasto: fd.get("fecha_gasto") || null,
+            mensaje_original: fd.get("mensaje_original") || null,
+            limpiar_categoria: !fd.get("categoria_id"),
+          };
+          if (m) await api(`/admin/api/movimientos/${m.id}`, { method: "PATCH", body: JSON.stringify(body) });
+          else await api("/admin/api/movimientos", { method: "POST", body: JSON.stringify(body) });
+        }
+      );
+    };
+
+    window.editarCat = (id) => {
+      const c = id ? categorias.find(x => x.id === id) : null;
+      abrir(c ? `Editar ${esc(c.nombre)}` : "Nueva categoría",
+        field("Nombre", `<input name="nombre" required value="${c?esc(c.nombre):""}">`) +
+        field("Tipo", `<select name="tipo"><option value="gasto" ${!c||c.tipo==="gasto"?"selected":""}>gasto</option><option value="ingreso" ${c&&c.tipo==="ingreso"?"selected":""}>ingreso</option></select>`),
+        async (fd) => {
+          const body = { nombre: fd.get("nombre"), tipo: fd.get("tipo") };
+          if (c) await api(`/admin/api/categorias/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });
+          else await api("/admin/api/categorias", { method: "POST", body: JSON.stringify(body) });
+        }
+      );
+    };
+
+    window.editarUser = (id) => {
+      const u = id ? usuarios.find(x => x.id === id) : null;
+      abrir(u ? `Editar ${esc(u.nombre)}` : "Nuevo usuario",
+        field("Nombre", `<input name="nombre" required value="${u?esc(u.nombre):""}">`) +
+        field("WhatsApp", `<input name="numero_whatsapp" required value="${u?esc(u.numero_whatsapp):""}" placeholder="57300...">`),
+        async (fd) => {
+          const body = { nombre: fd.get("nombre"), numero_whatsapp: fd.get("numero_whatsapp") };
+          if (u) await api(`/admin/api/usuarios/${u.id}`, { method: "PATCH", body: JSON.stringify(body) });
+          else await api("/admin/api/usuarios", { method: "POST", body: JSON.stringify(body) });
+        }
+      );
+    };
+
+    document.querySelectorAll("nav button").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        ["movimientos","categorias","usuarios"].forEach(t => {
+          $("tab-"+t).hidden = t !== btn.dataset.tab;
+        });
+      };
+    });
+    $("filtro-user").onchange = render;
+    $("btn-nuevo-mov").onclick = () => editarMov(null);
+    $("btn-nueva-cat").onclick = () => editarCat(null);
+    $("btn-nuevo-user").onclick = () => editarUser(null);
+    $("dlg-cancel").onclick = () => $("dlg").close();
+    loadAll().catch(e => showMsg(e.message));
+    setInterval(() => { if (!$("dlg").open) loadAll().catch(() => {}); }, 5000);
+  </script>
+</body>
+</html>

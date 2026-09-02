@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login — Finanzas Admin</title>
+  <style>
+    :root { --bg:#0f1115; --card:#181c24; --line:#2a3140; --txt:#eef1f6; --muted:#93a0b5; --acc:#6ee7b7; --danger:#f87171; --warn:#fbbf24; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--txt); display:flex; justify-content:center; align-items:center; min-height:100vh; }
+    .card { background:var(--card); border-radius:16px; padding:2rem; width:min(380px, 92vw); }
+    h1 { margin:0 0 .3rem; font-size:1.3rem; }
+    h1 span { color:var(--acc); }
+    .sub { color:var(--muted); font-size:.85rem; margin-bottom:1.5rem; }
+    form { display:flex; flex-direction:column; gap:1rem; }
+    label { display:flex; flex-direction:column; gap:.3rem; font-size:.85rem; color:var(--muted); }
+    input { background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:.6rem .8rem; font-size:1rem; }
+    input:focus { outline:none; border-color:var(--acc); }
+    button { background:var(--acc); color:#04291c; border:none; border-radius:8px; padding:.7rem; font-size:1rem; font-weight:600; cursor:pointer; }
+    button:hover { opacity:.9; }
+    .error { color:var(--danger); font-size:.85rem; min-height:1.2rem; }
+    .totp-hint { color:var(--muted); font-size:.8rem; margin-top:-.5rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Finanzas <span>admin</span></h1>
+    <p class="sub">Ingresa tus credenciales</p>
+    <p class="error" id="error">{error}</p>
+    <form method="POST" action="/admin/login">
+      <label>Usuario
+        <input name="username" type="text" required autocomplete="username" autofocus>
+      </label>
+      <label>Contrasena
+        <input name="password" type="password" required autocomplete="current-password">
+      </label>
+      {totp_field}
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+</body>
+</html>
