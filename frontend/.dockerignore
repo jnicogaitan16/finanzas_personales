@@ -2,3 +2,7 @@ node_modules/
 .next/
 .git/
 *.md
+e2e/
+playwright.config.ts
+test-results/
+playwright-report/
