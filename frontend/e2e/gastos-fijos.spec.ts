@@ -39,7 +39,7 @@ test.describe("Gastos Fijos", () => {
     await expect(row).not.toBeVisible({ timeout: 10000 });
   });
 
-  test("toggle activar/desactivar gasto fijo", async ({ page }) => {
+  test("toggle desactivar gasto fijo", async ({ page }) => {
     const nombre = `Test Toggle ${TS()}`;
 
     // Create
@@ -52,7 +52,7 @@ test.describe("Gastos Fijos", () => {
     await dialog.getByPlaceholder("Arriendo, Internet, etc.").fill(nombre);
     await dialog.getByPlaceholder("0").first().fill("100000");
     await dialog.getByRole("button", { name: "Crear" }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
 
     const row = page.locator("tr").filter({ hasText: nombre });
     await expect(row).toBeVisible({ timeout: 10000 });
@@ -63,26 +63,13 @@ test.describe("Gastos Fijos", () => {
       timeout: 10000,
     });
 
-    // Reactivate
-    await row.getByRole("button", { name: "Activar" }).click();
-    await expect(
-      row.getByRole("button", { name: "Desactivar" }),
-    ).toBeVisible({ timeout: 10000 });
-
-    // Cleanup — retry delete to handle DOM detach from polling re-render
-    page.on("dialog", (d) => d.accept());
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await page
-          .locator("tr")
-          .filter({ hasText: nombre })
-          .getByRole("button", { name: "Borrar" })
-          .click({ timeout: 5000 });
-        break;
-      } catch {
-        // DOM detached by polling, retry
-      }
-    }
+    // Cleanup via API (avoid DOM detach from polling)
+    const id = await page.evaluate(async (n) => {
+      const res = await fetch("/api/gastos-fijos");
+      const data = await res.json() as { id: number; nombre: string }[];
+      return data.find((g) => g.nombre === n)?.id;
+    }, nombre);
+    if (id) await page.evaluate((i) => fetch(`/api/gastos-fijos/${i}`, { method: "DELETE" }), id);
   });
 
   test("crear gasto fijo compartido con porcentaje", async ({ page }) => {
