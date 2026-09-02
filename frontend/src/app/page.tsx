@@ -6,6 +6,8 @@ import { usePolling } from "@/hooks/use-polling"
 import { isInMonth } from "@/lib/format"
 import type { Movimiento, Usuario } from "@/lib/types"
 import { KpiCards } from "@/components/dashboard/kpi-cards"
+import { ProjectionCard } from "@/components/dashboard/projection-card"
+import { AnomaliesCard } from "@/components/dashboard/anomalies-card"
 import { CategoryBar } from "@/components/dashboard/category-bar"
 import { DistributionDonut } from "@/components/dashboard/distribution-donut"
 import { TrendLine } from "@/components/dashboard/trend-line"
@@ -133,6 +135,14 @@ export default function DashboardPage() {
         ingresoMes={ingresoMes}
         gastoMesAnterior={gastoMesAnterior}
       />
+
+      <ProjectionCard
+        gastoMes={gastoMes}
+        ingresoMes={ingresoMes}
+        selectedMonth={selectedMonth}
+      />
+
+      <AnomaliesCard movimientos={filtered} monthKey={monthKey} />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3">

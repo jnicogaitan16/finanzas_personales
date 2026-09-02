@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import io
 from datetime import date
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any
 import qrcode
 import qrcode.image.svg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -279,6 +280,41 @@ def api_listar_movimientos(
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_id=user_id)]
+
+
+@router.get("/api/movimientos/export.csv")
+def api_exportar_csv(
+    _: str = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+    mes: str | None = None,
+) -> StreamingResponse:
+    movs = svc.listar_movimientos(db, limit=10000, user_id=user_id)
+    if mes:
+        movs = [m for m in movs if m.fecha_gasto and str(m.fecha_gasto).startswith(mes)]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Fecha", "Usuario", "Categoria", "Tipo", "Monto", "Descripcion", "Medio de pago", "Compartido"])
+    for m in movs:
+        s = svc.serializar_movimiento(m)
+        writer.writerow([
+            s.get("fecha_gasto", ""),
+            s.get("usuario", ""),
+            s.get("categoria", ""),
+            s.get("tipo", ""),
+            s.get("monto_cop", 0),
+            s.get("descripcion", ""),
+            s.get("medio_pago", ""),
+            "Si" if s.get("es_compartido") else "No",
+        ])
+    buf.seek(0)
+    filename = f"movimientos_{mes or 'todos'}.csv"
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/api/movimientos", status_code=201)
