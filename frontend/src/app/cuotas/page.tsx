@@ -4,10 +4,12 @@ import { useState, useMemo } from "react"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useSort } from "@/hooks/use-sort"
 import { formatCOP, formatDate } from "@/lib/format"
 import type { CompraCuotas, Usuario } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SortableHead } from "@/components/ui/sortable-head"
 import {
   Dialog,
   DialogContent,
@@ -117,6 +119,9 @@ export default function CuotasPage() {
         return String(c.user_id) === filterUser
       }),
     [cuotas, filterUser],
+  )
+
+  const { sorted, sort, toggle } = useSort(filtered, "fecha_compra"
   )
 
   /* ---- Summary metrics (active only) ---- */
@@ -300,21 +305,21 @@ export default function CuotasPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Establecimiento</TableHead>
-                <TableHead className="text-right">Valor total</TableHead>
-                <TableHead className="text-center">Cuotas</TableHead>
-                <TableHead className="text-right">Valor cuota</TableHead>
-                <TableHead className="text-right">Intereses</TableHead>
-                <TableHead className="text-right">Saldo pendiente</TableHead>
-                <TableHead>Tarjeta</TableHead>
-                <TableHead className="text-right">Tasa %EA</TableHead>
+                <SortableHead label="Fecha" sortKey="fecha_compra" sort={sort} onToggle={toggle} />
+                <SortableHead label="Establecimiento" sortKey="establecimiento" sort={sort} onToggle={toggle} />
+                <SortableHead label="Valor total" sortKey="valor_total_cop" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Cuotas" sortKey="cuotas_pagadas" sort={sort} onToggle={toggle} className="text-center" />
+                <SortableHead label="Valor cuota" sortKey="valor_cuota_cop" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Intereses" sortKey="valor_intereses_cop" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Saldo pendiente" sortKey="saldo_pendiente_cop" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Tarjeta" sortKey="tarjeta" sort={sort} onToggle={toggle} />
+                <SortableHead label="Tasa %EA" sortKey="tasa_ea" sort={sort} onToggle={toggle} className="text-right" />
                 <TableHead className="text-center">Comp.</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((c) => (
+              {sorted.map((c) => (
                 <TableRow
                   key={c.id}
                   className={c.liquidada ? "opacity-40" : ""}
