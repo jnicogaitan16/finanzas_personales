@@ -282,7 +282,7 @@ def api_listar_movimientos(
     return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_id=user_id)]
 
 
-@router.get("/api/movimientos/export.csv")
+@router.get("/api/movimientos/export-csv")
 def api_exportar_csv(
     _: str = Depends(require_admin),
     db: Session = Depends(get_db),
