@@ -4,9 +4,11 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useSort } from "@/hooks/use-sort"
 import { formatCOP, formatDate } from "@/lib/format"
 import type { Movimiento, Categoria, Usuario } from "@/lib/types"
 import { Download } from "lucide-react"
+import { SortableHead } from "@/components/ui/sortable-head"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -199,6 +201,8 @@ export default function MovimientosPage() {
     return m.usuario?.toLowerCase() === filterUser.toLowerCase()
   })
 
+  const { sorted, sort, toggle } = useSort(filtered, "fecha_gasto")
+
   return (
     <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
@@ -240,18 +244,18 @@ export default function MovimientosPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Usuario</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead>Descripcion</TableHead>
-                <TableHead>Medio</TableHead>
+                <SortableHead label="Fecha" sortKey="fecha_gasto" sort={sort} onToggle={toggle} />
+                <SortableHead label="Usuario" sortKey="usuario" sort={sort} onToggle={toggle} />
+                <SortableHead label="Categoria" sortKey="categoria" sort={sort} onToggle={toggle} />
+                <SortableHead label="Monto" sortKey="monto_cop" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Descripcion" sortKey="descripcion" sort={sort} onToggle={toggle} />
+                <SortableHead label="Medio" sortKey="medio_pago" sort={sort} onToggle={toggle} />
                 <TableHead>Comp.</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((m) => (
+              {sorted.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell className="text-sm">{formatDate(m.fecha_gasto)}</TableCell>
                   <TableCell className="text-sm">{m.usuario ?? "—"}</TableCell>
@@ -301,7 +305,7 @@ export default function MovimientosPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!loadingMov && filtered.length === 0 && (
+              {!loadingMov && sorted.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                     No hay movimientos

@@ -1,11 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useState, useMemo } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useSort, type SortState } from "@/hooks/use-sort"
 import { formatCOP } from "@/lib/format"
 import type { BalanceCompartido } from "@/lib/types"
+import { SortableHead } from "@/components/ui/sortable-head"
 import {
   Table,
   TableBody,
@@ -90,22 +92,24 @@ export default function CompartidoPage() {
     }
   }
 
-  function renderTable(items: typeof detalles, total: number) {
+  function SortableDeudaTable({ items, total }: { items: typeof detalles; total: number }) {
+    const { sorted, sort, toggle } = useSort(items)
+
     return (
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Concepto</TableHead>
-                <TableHead className="text-right">Valor compra</TableHead>
-                <TableHead className="text-right">Cuota mes</TableHead>
-                <TableHead className="text-right">Mitad</TableHead>
-                <TableHead>Fuente</TableHead>
+                <SortableHead label="Concepto" sortKey="concepto" sort={sort} onToggle={toggle} />
+                <SortableHead label="Valor compra" sortKey="valor_compra" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Cuota mes" sortKey="total" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Mitad" sortKey="mitad" sort={sort} onToggle={toggle} className="text-right" />
+                <SortableHead label="Fuente" sortKey="fuente" sort={sort} onToggle={toggle} />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((d, i) => (
+              {sorted.map((d, i) => (
                 <TableRow key={i}>
                   <TableCell>{d.concepto}</TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
@@ -182,7 +186,7 @@ export default function CompartidoPage() {
             <h2 className="text-lg font-semibold">
               Deuda de {user2} a {user1}
             </h2>
-            {renderTable(deudaDeUser2AUser1, totalUser2)}
+            <SortableDeudaTable items={deudaDeUser2AUser1} total={totalUser2} />
           </div>
 
           {/* Section: Deuda de User1 a User2 */}
@@ -190,7 +194,7 @@ export default function CompartidoPage() {
             <h2 className="text-lg font-semibold">
               Deuda de {user1} a {user2}
             </h2>
-            {renderTable(deudaDeUser1AUser2, totalUser1)}
+            <SortableDeudaTable items={deudaDeUser1AUser2} total={totalUser1} />
           </div>
         </>
       )}
