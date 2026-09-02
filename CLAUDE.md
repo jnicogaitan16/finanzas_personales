@@ -36,6 +36,19 @@ cd backend && alembic upgrade head
 cd backend && alembic revision --autogenerate -m "descripcion"
 ```
 
+## Branching y deploy
+
+```
+feature/* → PR → dev (CI: tests) → merge
+                  ↓
+              dev → PR → main (CI: tests) → merge → deploy prod (Oracle Cloud)
+```
+
+- **dev**: Rama de desarrollo. Todas las features van aqui primero.
+- **main**: Rama de produccion. Solo recibe merges desde dev.
+- **Ambas ramas protegidas**: requieren PR + CI pasando.
+- **Deploy automatico**: Al mergear a main, GitHub Actions hace SSH a Oracle Cloud y rebuild.
+
 ## Estructura clave
 
 ```
