@@ -69,14 +69,20 @@ test.describe("Gastos Fijos", () => {
       row.getByRole("button", { name: "Desactivar" }),
     ).toBeVisible({ timeout: 10000 });
 
-    // Cleanup — wait for stability after toggle re-render, then delete
+    // Cleanup — retry delete to handle DOM detach from polling re-render
     page.on("dialog", (d) => d.accept());
-    const deleteBtn = page
-      .locator("tr")
-      .filter({ hasText: nombre })
-      .getByRole("button", { name: "Borrar" });
-    await deleteBtn.waitFor({ state: "visible" });
-    await deleteBtn.click({ force: true });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await page
+          .locator("tr")
+          .filter({ hasText: nombre })
+          .getByRole("button", { name: "Borrar" })
+          .click({ timeout: 5000 });
+        break;
+      } catch {
+        // DOM detached by polling, retry
+      }
+    }
   });
 
   test("crear gasto fijo compartido con porcentaje", async ({ page }) => {
