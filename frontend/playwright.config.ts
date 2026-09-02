@@ -12,7 +12,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [["html", { open: "never" }]],
-  timeout: 30_000,
+  timeout: parseInt(process.env.PLAYWRIGHT_TIMEOUT || "30000"),
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:3000",
     trace: "on-first-retry",

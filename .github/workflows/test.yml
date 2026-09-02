@@ -91,6 +91,13 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
 
+      - name: Seed test users
+        run: |
+          PGPASSWORD=evolution psql -h localhost -p 5433 -U evolution finanzas -c "
+            INSERT INTO users (nombre, numero_whatsapp) VALUES ('Nico', '573001112233'), ('Daylyng', '573004445566')
+            ON CONFLICT DO NOTHING;
+          "
+
       - name: Start backend
         working-directory: backend
         run: |
@@ -101,6 +108,7 @@ jobs:
           DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
           ADMIN_USER: admin
           ADMIN_PASSWORD: testpass123
+          AUTHORIZED_USERS: "573001112233,573004445566"
           EVOLUTION_API_URL: ""
           EVOLUTION_API_KEY: ""
 
@@ -136,6 +144,7 @@ jobs:
           BASE_URL: http://localhost:3000
           ADMIN_USER: admin
           ADMIN_PASSWORD: testpass123
+          PLAYWRIGHT_TIMEOUT: "60000"
 
       - name: Upload test report
         uses: actions/upload-artifact@v4
