@@ -7,7 +7,6 @@ export async function POST(request: NextRequest) {
   const form = new URLSearchParams()
   form.set("username", body.username)
   form.set("password", body.password)
-  if (body.totp_code) form.set("totp_code", body.totp_code)
 
   const res = await fetch(`${BACKEND}/admin/login`, {
     method: "POST",
@@ -30,5 +29,5 @@ export async function POST(request: NextRequest) {
     }
     return response
   }
-  return NextResponse.json({ error: "Credenciales incorrectas" }, { status: 401 })
+  return NextResponse.json({ error: "Usuario o contrasena incorrectos" }, { status: 401 })
 }

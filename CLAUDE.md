@@ -1,16 +1,16 @@
-# Finanzas Personales — Bot WhatsApp
+# Finanzas Personales — Dashboard Web
 
-Bot de finanzas personales por WhatsApp para registrar gastos e ingresos en COP (pesos colombianos). Proyecto personal para 2 usuarios (Nico y Daylyng) en Bogota, Colombia.
+Dashboard web de finanzas personales para registrar gastos e ingresos en COP (pesos colombianos). Proyecto personal para 2 usuarios (Nico y Daylyng) en Bogota, Colombia.
 
 ## Stack
 
 - **Backend:** Python 3.12 + FastAPI + Uvicorn
+- **Frontend:** Next.js + React + TailwindCSS + Shadcn/ui + Recharts
 - **DB:** PostgreSQL 15 (Docker, puerto host 5433) + SQLAlchemy 2.0 + Alembic
-- **WhatsApp:** Evolution API v2.3.7 (Baileys, self-hosted Docker)
-- **Transcripcion:** Groq API (Whisper large-v3-turbo)
-- **Cache:** Redis 7 (para Evolution)
-- **Admin:** HTML/JS vanilla, auth por cookies + TOTP 2FA
-- **Orquestacion:** Docker Compose (backend + postgres + evolution + redis)
+- **Parser IA:** Groq API (Llama 3.3 70B) + regex fallback
+- **Cache:** Redis 7 (command state, deduplicacion)
+- **Auth:** Cookies HttpOnly + TOTP 2FA
+- **Orquestacion:** Docker Compose (backend + frontend + postgres + redis)
 - **Tests:** pytest contra PostgreSQL real con SAVEPOINT isolation
 
 ## Comandos esenciales
@@ -53,15 +53,13 @@ feature/* → PR → dev (CI: tests) → merge
 
 ```
 backend/
-  main.py              # FastAPI app, webhooks
+  main.py              # FastAPI app, health endpoint
   config.py            # Pydantic settings desde .env
   tiempo.py            # Timezone Bogota
   admin/               # Panel web + auth cookies + TOTP
   db/                  # Models, session, migrations Alembic
-  parser/              # Regex extractor, categorias, numeros hablados
+  parser/              # LLM + regex extractor, categorias, numeros hablados
   services/            # Logica: registro, comandos, admin CRUD, audit
-  transcription/       # Groq Whisper client
-  webhook/             # Evolution API client, sender, media
 ```
 
 ## Reglas del proyecto
@@ -73,7 +71,6 @@ backend/
 - **Soft delete** en movimientos (columna `eliminado_en`).
 - **Audit log** en toda operacion CRUD de movimientos.
 - **Escapar HTML** en todo dato de usuario renderizado en admin.
-- **Webhook verificado** con header apikey.
 - **Tests** deben correr contra PostgreSQL, no SQLite.
 
 ## Plan del proyecto
@@ -88,7 +85,6 @@ Usa `/nombre-del-skill` para invocar contexto especializado:
 - `/parser` — Reglas del parser de mensajes, regex, numeros hablados
 - `/db` — Esquema PostgreSQL, Alembic, SQLAlchemy patterns
 - `/qa` — QA Automation con Playwright, E2E tests, selectores del frontend
-- `/webhook` — Evolution API, WhatsApp, media, sender
 - `/admin` — Panel admin, auth, CRUD, UI patterns
 - `/testing` — Pytest con PostgreSQL SAVEPOINT, fixtures, patterns
 

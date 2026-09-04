@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
@@ -76,6 +76,17 @@ export default function MovimientosPage() {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [filterUser, setFilterUser] = useState<string>("todos")
   const [saving, setSaving] = useState(false)
+
+  // Open dialog when navigated with ?new=1 (FAB button)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("new") === "1") {
+      setEditing(null)
+      setForm(emptyForm)
+      setDialogOpen(true)
+      window.history.replaceState(null, "", "/movimientos")
+    }
+  }, [])
 
   const {
     data: movimientos,

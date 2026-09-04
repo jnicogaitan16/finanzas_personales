@@ -11,58 +11,15 @@ services:
       DATABASE_URL: postgresql+psycopg://evolution:evolution@postgres:5432/finanzas
       REDIS_URL: redis://redis:6379/1
       TZ: America/Bogota
-      EVOLUTION_API_URL: http://evolution:8080
-      EVOLUTION_WEBHOOK_URL: http://backend:8000/webhook/evolution
     depends_on:
       postgres:
         condition: service_healthy
-      evolution:
-        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  evolution:
-    image: evoapicloud/evolution-api:v2.3.7
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    dns:
-      - 1.1.1.1
-      - 1.0.0.1
-    environment:
-      TZ: America/Bogota
-      SERVER_URL: http://localhost:8080
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
-      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
-      DATABASE_ENABLED: "true"
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://evolution:evolution@postgres:5432/evolution
-      DATABASE_CONNECTION_CLIENT_NAME: finanzas
-      DATABASE_SAVE_DATA_INSTANCE: "true"
-      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
-      DATABASE_SAVE_MESSAGE_UPDATE: "false"
-      DATABASE_SAVE_DATA_CONTACTS: "false"
-      DATABASE_SAVE_DATA_CHATS: "false"
-      CACHE_REDIS_ENABLED: "true"
-      CACHE_REDIS_URI: redis://redis:6379/0
-      CACHE_REDIS_PREFIX_KEY: finanzas
-      CACHE_LOCAL_ENABLED: "false"
-      QRCODE_LIMIT: "30"
-      CONFIG_SESSION_PHONE_CLIENT: Finanzas
-      CONFIG_SESSION_PHONE_NAME: Chrome
-      LANGUAGE: es
-      DEL_INSTANCE: "false"
-    volumes:
-      - evolution_instances:/evolution/instances
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
 
   # Postgres de este proyecto: host 5433. No usar 5432 (eso es kamecol).
   postgres:
@@ -126,6 +83,5 @@ services:
         condition: service_healthy
 
 volumes:
-  evolution_instances:
   evolution_postgres:
   evolution_redis:

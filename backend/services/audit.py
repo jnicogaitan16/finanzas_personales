@@ -22,7 +22,7 @@ def registrar_creacion(
     db: Session,
     movimiento: Movimiento,
     *,
-    origen: str = "whatsapp",
+    origen: str = "admin",
 ) -> None:
     db.add(AuditLog(
         tabla="movimientos",
@@ -42,7 +42,7 @@ def registrar_edicion(
     movimiento: Movimiento,
     valores_anteriores: dict,
     *,
-    origen: str = "whatsapp",
+    origen: str = "admin",
 ) -> None:
     db.add(AuditLog(
         tabla="movimientos",
@@ -61,7 +61,7 @@ def registrar_borrado(
     db: Session,
     movimiento: Movimiento,
     *,
-    origen: str = "whatsapp",
+    origen: str = "admin",
 ) -> None:
     db.add(AuditLog(
         tabla="movimientos",

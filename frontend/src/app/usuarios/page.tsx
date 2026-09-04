@@ -108,7 +108,7 @@ export default function UsuariosPage() {
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>Nombre</TableHead>
-                <TableHead>WhatsApp</TableHead>
+                <TableHead>Telefono</TableHead>
                 <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -170,7 +170,7 @@ export default function UsuariosPage() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">WhatsApp</label>
+              <label className="text-sm font-medium">Telefono</label>
               <Input
                 required
                 value={form.numero_whatsapp}

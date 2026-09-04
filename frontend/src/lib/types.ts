@@ -85,6 +85,7 @@ export interface CompraCuotas {
   id: number
   user_id: number
   usuario: string | null
+  tarjeta_id: number | null
   fecha_compra: string | null
   establecimiento: string
   descripcion: string | null
@@ -100,6 +101,54 @@ export interface CompraCuotas {
   liquidada: boolean
   cuotas_restantes: number
   es_compartido: boolean
+}
+
+export interface TarjetaCredito {
+  id: number
+  user_id: number
+  usuario: string | null
+  banco: string
+  nombre: string
+  ultimos_4: string | null
+  fecha_corte: number
+  fecha_pago: number
+  tasa_ea: number | null
+  cupo_total_cop: number | null
+  activa: boolean
+}
+
+export interface ProyeccionMes {
+  total: number
+  compras: {
+    id: number
+    establecimiento: string
+    valor_cuota: number
+    cuota_num: number
+    num_cuotas: number
+  }[]
+}
+
+export interface IngresoRecurrente {
+  id: number
+  user_id: number
+  usuario: string | null
+  nombre: string
+  tipo: "fijo" | "variable"
+  frecuencia: "mensual" | "quincenal" | "semanal" | "anual"
+  monto_cop: number
+  dia_pago_1: number | null
+  dia_pago_2: number | null
+  activo: boolean
+}
+
+export interface ResumenIngresos {
+  mes: string
+  esperado_fijo: number
+  esperado_variable: number
+  esperado_total: number
+  recibido: number
+  diferencia: number
+  ingresos: IngresoRecurrente[]
 }
 
 export interface Deuda {

@@ -24,7 +24,6 @@ def _limpiar_pendientes_comandos() -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def _desactivar_apis_externas(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "evolution_api_key", "")
     monkeypatch.setattr(settings, "groq_api_key", "")
 
 
@@ -44,8 +43,11 @@ def db_session() -> Generator[Session, None, None]:
     session.execute(text("DELETE FROM presupuestos"))
     session.execute(text("DELETE FROM movimientos"))
     session.execute(text("DELETE FROM compras_cuotas"))
+    session.execute(text("DELETE FROM tarjetas_credito"))
+    session.execute(text("DELETE FROM ingresos_recurrentes"))
     session.execute(text("DELETE FROM categorias"))
     session.execute(text("DELETE FROM users"))
+    session.execute(text("DELETE FROM grupos"))
     session.flush()
 
     @event.listens_for(session, "after_transaction_end")

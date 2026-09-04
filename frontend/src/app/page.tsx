@@ -3,15 +3,18 @@ import { useCallback, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
-import { isInMonth } from "@/lib/format"
+import { isInMonth, formatCOP } from "@/lib/format"
 import type { Movimiento, Usuario } from "@/lib/types"
 import { KpiCards } from "@/components/dashboard/kpi-cards"
 import { ProjectionCard } from "@/components/dashboard/projection-card"
 import { AnomaliesCard } from "@/components/dashboard/anomalies-card"
-import { CategoryBar } from "@/components/dashboard/category-bar"
-import { DistributionDonut } from "@/components/dashboard/distribution-donut"
+import { CategoryDonut } from "@/components/dashboard/category-donut"
+import { CashflowCard } from "@/components/dashboard/cashflow-card"
+import { AlertasCard } from "@/components/dashboard/alertas-card"
+import { ScoreCard } from "@/components/dashboard/score-card"
 import { TrendLine } from "@/components/dashboard/trend-line"
 import { RecentTable } from "@/components/dashboard/recent-table"
+import { DashboardSkeleton } from "@/components/ui/skeleton"
 
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
 
@@ -97,64 +100,79 @@ export default function DashboardPage() {
   }, [filtered, monthKey, selectedMonth.year, selectedMonth.month])
 
   if (loading && !movimientos) {
-    return <p className="text-muted-foreground">Cargando datos...</p>
+    return <DashboardSkeleton />
   }
 
+  const balance = ingresoMes - gastoMes
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <div className="flex items-center gap-3">
-          {/* User filter */}
+    <div className="space-y-5 animate-fade-in">
+      {/* Header: balance + month + user */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wide">Balance del mes</p>
+            <p className={`text-3xl font-bold tabular-nums ${balance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {formatCOP(balance)}
+            </p>
+          </div>
           <select
             value={selectedUser}
             onChange={(e) => setSelectedUser(e.target.value)}
-            className="bg-card border border-border rounded-lg px-3 py-1.5 text-sm"
+            className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-300"
           >
             <option value="todos">Todos</option>
             {(usuarios ?? []).map(u => (
               <option key={u.id} value={String(u.id)}>{u.nombre}</option>
             ))}
           </select>
+        </div>
 
-          {/* Month selector */}
-          <div className="flex items-center gap-1">
-            <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-medium min-w-[100px] text-center">{monthLabel}</span>
-            <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+        {/* Month selector */}
+        <div className="flex items-center justify-center gap-4 bg-white/5 rounded-xl py-2">
+          <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-semibold text-gray-100 min-w-[120px] text-center">{monthLabel}</span>
+          <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
+      {/* KPI cards */}
       <KpiCards
         gastoMes={gastoMes}
         ingresoMes={ingresoMes}
         gastoMesAnterior={gastoMesAnterior}
       />
 
+      {/* Category donut + chips */}
+      <CategoryDonut data={categoryData} gastoTotal={gastoMes} />
+
+      {/* Alertas */}
+      <AlertasCard />
+
+      {/* Flujo de caja + Score side by side on desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <CashflowCard />
+        <ScoreCard />
+      </div>
+
+      {/* Projection */}
       <ProjectionCard
         gastoMes={gastoMes}
         ingresoMes={ingresoMes}
         selectedMonth={selectedMonth}
       />
 
+      {/* Anomalies */}
       <AnomaliesCard movimientos={filtered} monthKey={monthKey} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
-          <CategoryBar data={categoryData} />
-        </div>
-        <div className="lg:col-span-2">
-          <DistributionDonut data={categoryData} />
-        </div>
-      </div>
-
+      {/* Trend */}
       <TrendLine data={trendData} />
 
+      {/* Recent */}
       <RecentTable movimientos={filtered} />
     </div>
   )

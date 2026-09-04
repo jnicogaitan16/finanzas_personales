@@ -26,23 +26,23 @@ export function ProjectionCard({ gastoMes, ingresoMes, selectedMonth }: Projecti
   const balanceProyectado = ingresoProyectado - gastoProyectado
 
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <div className="flex items-center gap-2 text-muted-foreground text-sm mb-4">
+    <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5">
+      <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wide mb-4">
         <Target className="w-4 h-4" />
-        Proyeccion al cierre del mes ({dayOfMonth}/{daysInMonth} dias)
+        Proyeccion al cierre ({dayOfMonth}/{daysInMonth} dias)
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <p className="text-xs text-muted-foreground mb-1">Gasto proyectado</p>
-          <p className="text-lg font-bold tabular-nums text-rose-400">{formatCOP(gastoProyectado)}</p>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-rose-500/10 rounded-xl p-3 text-center">
+          <p className="text-[11px] text-gray-400 mb-1">Gasto</p>
+          <p className="text-base font-bold tabular-nums text-rose-400">{formatCOP(gastoProyectado)}</p>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground mb-1">Ingreso proyectado</p>
-          <p className="text-lg font-bold tabular-nums text-primary">{formatCOP(ingresoProyectado)}</p>
+        <div className="bg-emerald-500/10 rounded-xl p-3 text-center">
+          <p className="text-[11px] text-gray-400 mb-1">Ingreso</p>
+          <p className="text-base font-bold tabular-nums text-emerald-400">{formatCOP(ingresoProyectado)}</p>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground mb-1">Balance proyectado</p>
-          <p className={`text-lg font-bold tabular-nums ${balanceProyectado >= 0 ? "text-primary" : "text-rose-400"}`}>
+        <div className={`${balanceProyectado >= 0 ? "bg-blue-500/10" : "bg-rose-500/10"} rounded-xl p-3 text-center`}>
+          <p className="text-[11px] text-gray-400 mb-1">Balance</p>
+          <p className={`text-base font-bold tabular-nums ${balanceProyectado >= 0 ? "text-blue-400" : "text-rose-400"}`}>
             {formatCOP(balanceProyectado)}
           </p>
         </div>

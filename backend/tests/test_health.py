@@ -1,8 +1,8 @@
-import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from admin.auth import COOKIE_NAME, clear_all_sessions, login
-from config import settings
+from admin.auth import COOKIE_NAME, clear_all_sessions, hash_password, login
+from db.models import User
 
 
 def test_health_ok(client: TestClient) -> None:
@@ -11,12 +11,12 @@ def test_health_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_listar_categorias_semilla(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "admin_password", "secreto")
-    monkeypatch.setattr(settings, "admin_user", "admin")
-    monkeypatch.setattr(settings, "admin_totp_secret", "")
+def test_listar_categorias_semilla(client: TestClient, seeded_session: Session) -> None:
+    user = seeded_session.query(User).filter_by(nombre="Nico").one()
+    user.password_hash = hash_password("secreto")
+    seeded_session.commit()
     clear_all_sessions()
-    token = login("admin", "secreto")
+    token = login(seeded_session, "Nico", "secreto")
     assert token is not None
     client.cookies.set(COOKIE_NAME, token)
     response = client.get("/admin/api/categorias")

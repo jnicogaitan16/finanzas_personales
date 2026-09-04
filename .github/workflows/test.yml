@@ -109,8 +109,6 @@ jobs:
           ADMIN_USER: admin
           ADMIN_PASSWORD: testpass123
           AUTHORIZED_USERS: "573001112233,573004445566"
-          EVOLUTION_API_URL: ""
-          EVOLUTION_API_KEY: ""
 
       # --- Frontend ---
       - name: Install frontend dependencies
