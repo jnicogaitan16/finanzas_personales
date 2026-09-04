@@ -107,6 +107,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
+      <h1 className="sr-only">Dashboard</h1>
       {/* Header: balance + month + user */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
