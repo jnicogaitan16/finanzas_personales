@@ -1,10 +1,10 @@
-from datetime import date
+from datetime import date, datetime
 
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from db.models import Movimiento
 from services.comandos import interpretar_comando
+from services.registro import procesar_mensaje
 
 
 def test_interpreta_borrar_y_corregir() -> None:
@@ -95,62 +95,43 @@ def test_gasto_normal_no_es_comando() -> None:
     assert interpretar_comando("Ingreso 20000") is None
 
 
-def test_whatsapp_borra_ultimo(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
+def _msg(db: Session, texto: str, enviado_en: str | None = None):
+    env = datetime.fromisoformat(enviado_en) if enviado_en else None
+    return procesar_mensaje(db, telefono="573001112233", texto=texto, enviado_en=env)
+
+
+def test_borra_ultimo(seeded_session: Session) -> None:
+    _msg(seeded_session, "taxi 12000")
     assert seeded_session.query(Movimiento).count() == 1
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "borra el último"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Borrado" in res.json()["mensaje"]
+    res = _msg(seeded_session, "borra el último")
+    assert res.status == "comando"
+    assert "Borrado" in res.mensaje_respuesta
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.eliminado_en is not None
 
 
-def test_whatsapp_elimina_ultimo_registro(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "elimina ultimo registro"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Borrado" in res.json()["mensaje"]
+def test_elimina_ultimo_registro(seeded_session: Session) -> None:
+    _msg(seeded_session, "taxi 12000")
+    res = _msg(seeded_session, "elimina ultimo registro")
+    assert res.status == "comando"
+    assert "Borrado" in res.mensaje_respuesta
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.eliminado_en is not None
 
 
-def test_whatsapp_borra_por_descripcion(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 23300 en maya"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "borra gasto de maya"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Borrado" not in res.json()["mensaje"]
-    assert "¿Lo borro?" in res.json()["mensaje"]
+def test_borra_por_descripcion(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 23300 en maya")
+    _msg(seeded_session, "taxi 12000")
+    res = _msg(seeded_session, "borra gasto de maya")
+    assert res.status == "comando"
+    assert "Borrado" not in res.mensaje_respuesta
+    assert "¿Lo borro?" in res.mensaje_respuesta
     assert seeded_session.query(Movimiento).count() == 2
     maya = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 23_300).one()
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": f"borra #{maya.id}"},
-    )
-    assert "Borrado" in res.json()["mensaje"]
+    res = _msg(seeded_session, f"borra #{maya.id}")
+    assert "Borrado" in res.mensaje_respuesta
     maya = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 23_300).one()
     seeded_session.refresh(maya)
     assert maya.eliminado_en is not None
@@ -159,62 +140,36 @@ def test_whatsapp_borra_por_descripcion(client: TestClient, seeded_session: Sess
     assert activos[0].monto_cop == 12_000
 
 
-def test_whatsapp_actualiza_por_descripcion(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 23300 en maya"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "actualiza gasto de maya por 15000"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "actualizado" in res.json()["mensaje"].lower()
+def test_actualiza_por_descripcion(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 23300 en maya")
+    res = _msg(seeded_session, "actualiza gasto de maya por 15000")
+    assert res.status == "comando"
+    assert "actualizado" in res.mensaje_respuesta.lower()
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.monto_cop == 15_000
 
 
-def test_whatsapp_actualiza_valor_de_pendajadas(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 10000 en pendajadas"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "actualiza el valor de pendajadas a 500000"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "actualizado" in res.json()["mensaje"].lower()
+def test_actualiza_valor_de_pendajadas(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 10000 en pendajadas")
+    res = _msg(seeded_session, "actualiza el valor de pendajadas a 500000")
+    assert res.status == "comando"
+    assert "actualizado" in res.mensaje_respuesta.lower()
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.monto_cop == 500_000
 
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "actualiza gasto de pendajadas po 5000000"},
-    )
-    assert res.json()["status"] == "comando"
+    res = _msg(seeded_session, "actualiza gasto de pendajadas po 5000000")
+    assert res.status == "comando"
     seeded_session.refresh(mov)
     assert mov.monto_cop == 5_000_000
 
 
-def test_whatsapp_modifica_ultimo_otros_no_crea_gasto(
-    client: TestClient, seeded_session: Session
-) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 50k en putas"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Modifica último otros a 190000"},
-    )
-    assert res.json()["status"] == "comando"
+def test_modifica_ultimo_otros_no_crea_gasto(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 50k en putas")
+    _msg(seeded_session, "taxi 12000")
+    res = _msg(seeded_session, "Modifica último otros a 190000")
+    assert res.status == "comando"
     assert seeded_session.query(Movimiento).count() == 2
     actualizado = [m for m in seeded_session.query(Movimiento).all() if m.monto_cop == 190_000]
     taxi = [m for m in seeded_session.query(Movimiento).all() if m.monto_cop == 12_000]
@@ -222,36 +177,21 @@ def test_whatsapp_modifica_ultimo_otros_no_crea_gasto(
     assert len(taxi) == 1
 
 
-def test_whatsapp_corrige_ultimo(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "corrige el último a 15000"},
-    )
-    assert res.json()["status"] == "comando"
+def test_corrige_ultimo(seeded_session: Session) -> None:
+    _msg(seeded_session, "taxi 12000")
+    res = _msg(seeded_session, "corrige el último a 15000")
+    assert res.status == "comando"
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.monto_cop == 15000
 
 
-def test_whatsapp_borra_por_id(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 23300 en maya"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
+def test_borra_por_id(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 23300 en maya")
+    _msg(seeded_session, "taxi 12000")
     maya = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 23_300).one()
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": f"borra #{maya.id}"},
-    )
-    assert res.json()["status"] == "comando"
+    res = _msg(seeded_session, f"borra #{maya.id}")
+    assert res.status == "comando"
     seeded_session.refresh(maya)
     assert maya.eliminado_en is not None
     activos = seeded_session.query(Movimiento).filter(Movimiento.eliminado_en.is_(None)).all()
@@ -259,119 +199,61 @@ def test_whatsapp_borra_por_id(client: TestClient, seeded_session: Session) -> N
     assert activos[0].monto_cop == 12_000
 
 
-def test_varios_maya_pide_aclarar(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 10000 en maya"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 20000 en maya"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "borra gasto de maya"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Hay varios" in res.json()["mensaje"]
-    assert "Cuál" in res.json()["mensaje"] or "cual" in res.json()["mensaje"].lower()
+def test_varios_maya_pide_aclarar(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 10000 en maya")
+    _msg(seeded_session, "Gaste 20000 en maya")
+    res = _msg(seeded_session, "borra gasto de maya")
+    assert res.status == "comando"
+    assert "Hay varios" in res.mensaje_respuesta
+    assert "Cuál" in res.mensaje_respuesta or "cual" in res.mensaje_respuesta.lower()
     assert seeded_session.query(Movimiento).count() == 2
 
 
-def test_dos_iguales_pregunta_con_hora(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "ayer gasté 20 mil en uber",
-            "enviado_en": "2026-08-31T20:27:12",
-        },
-    )
-    client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "ayer gasté 20 mil en uber",
-            "enviado_en": "2026-08-31T20:27:31",
-        },
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "borra gasto de uber"},
-    )
-    mensaje = res.json()["mensaje"]
-    assert res.json()["status"] == "comando"
-    assert "Hay varios (2) registros" in mensaje
-    assert "borrar" in mensaje
-    assert mensaje.count("\n- ") >= 2
-    assert "$20.000" in mensaje
-    assert "gasto" in mensaje
+def test_dos_iguales_pregunta_con_hora(seeded_session: Session) -> None:
+    _msg(seeded_session, "ayer gasté 20 mil en uber", "2026-08-31T20:27:12")
+    _msg(seeded_session, "ayer gasté 20 mil en uber", "2026-08-31T20:27:31")
+    res = _msg(seeded_session, "borra gasto de uber")
+    assert res.status == "comando"
+    assert "Hay varios (2) registros" in res.mensaje_respuesta
+    assert "borrar" in res.mensaje_respuesta
+    assert res.mensaje_respuesta.count("\n- ") >= 2
+    assert "$20.000" in res.mensaje_respuesta
+    assert "gasto" in res.mensaje_respuesta
     assert seeded_session.query(Movimiento).count() == 2
 
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "actualiza uber a 25000"},
-    )
-    mensaje = res.json()["mensaje"]
-    assert "Hay varios (2) registros" in mensaje
-    assert "actualizar" in mensaje
+    res = _msg(seeded_session, "actualiza uber a 25000")
+    assert "Hay varios (2) registros" in res.mensaje_respuesta
+    assert "actualizar" in res.mensaje_respuesta
     assert seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 25_000).count() == 0
 
 
-def test_actualiza_uber_con_pesos_pide_cual_si_hay_varios(
-    client: TestClient, seeded_session: Session
-) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "ayer gasté 20 mil en uber"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "gasté 15000 pesos en uber"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "actualiza uber a 60 mil pesos"},
-    )
-    mensaje = res.json()["mensaje"]
-    assert res.json()["status"] == "comando"
-    assert "Hay varios (2) registros" in mensaje
-    assert "actualizar" in mensaje
+def test_actualiza_uber_con_pesos_pide_cual_si_hay_varios(seeded_session: Session) -> None:
+    _msg(seeded_session, "ayer gasté 20 mil en uber")
+    _msg(seeded_session, "gasté 15000 pesos en uber")
+    res = _msg(seeded_session, "actualiza uber a 60 mil pesos")
+    assert res.status == "comando"
+    assert "Hay varios (2) registros" in res.mensaje_respuesta
+    assert "actualizar" in res.mensaje_respuesta
     assert seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 60_000).count() == 0
     elegido = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 15_000).one()
     otro = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 20_000).one()
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": str(elegido.id)},
-    )
-    assert "actualizado" in res.json()["mensaje"].lower()
+    res = _msg(seeded_session, str(elegido.id))
+    assert "actualizado" in res.mensaje_respuesta.lower()
     seeded_session.refresh(elegido)
     seeded_session.refresh(otro)
     assert elegido.monto_cop == 60_000
     assert otro.monto_cop == 20_000
 
 
-def test_elige_duplicado_con_solo_el_numero(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "ayer gasté 20 mil en uber"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "ayer gasté 20 mil en uber"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "elimina uber"},
-    )
+def test_elige_duplicado_con_solo_el_numero(seeded_session: Session) -> None:
+    _msg(seeded_session, "ayer gasté 20 mil en uber")
+    _msg(seeded_session, "ayer gasté 20 mil en uber")
+    _msg(seeded_session, "elimina uber")
     ids = [m.id for m in seeded_session.query(Movimiento).order_by(Movimiento.id).all()]
     elegido = ids[0]
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": str(elegido)},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Borrado" in res.json()["mensaje"]
+    res = _msg(seeded_session, str(elegido))
+    assert res.status == "comando"
+    assert "Borrado" in res.mensaje_respuesta
     borrado = seeded_session.query(Movimiento).filter(Movimiento.id == elegido).one()
     seeded_session.refresh(borrado)
     assert borrado.eliminado_en is not None
@@ -379,105 +261,46 @@ def test_elige_duplicado_con_solo_el_numero(client: TestClient, seeded_session: 
     assert len(activos) == 1
 
 
-def test_borra_el_id_sin_numeral(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "Gaste 23300 en maya"},
-    )
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "taxi 12000"},
-    )
+def test_borra_el_id_sin_numeral(seeded_session: Session) -> None:
+    _msg(seeded_session, "Gaste 23300 en maya")
+    _msg(seeded_session, "taxi 12000")
     maya_id = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 23_300).first().id
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": f"borra el {maya_id}"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Borrado" in res.json()["mensaje"]
+    res = _msg(seeded_session, f"borra el {maya_id}")
+    assert res.status == "comando"
+    assert "Borrado" in res.mensaje_respuesta
     maya = seeded_session.get(Movimiento, maya_id)
     assert maya is not None and maya.eliminado_en is not None
 
 
-def test_whatsapp_actualiza_fecha_del_ultimo(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "uber 12000",
-            "enviado_en": "2026-09-01T10:00:00",
-        },
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "actualiza la fecha del último a ayer",
-            "enviado_en": "2026-09-01T10:05:00",
-        },
-    )
-    assert res.json()["status"] == "comando"
-    assert "Fecha actualizada" in res.json()["mensaje"]
+def test_actualiza_fecha_del_ultimo(seeded_session: Session) -> None:
+    _msg(seeded_session, "uber 12000", "2026-09-01T10:00:00")
+    res = _msg(seeded_session, "actualiza la fecha del último a ayer", "2026-09-01T10:05:00")
+    assert res.status == "comando"
+    assert "Fecha actualizada" in res.mensaje_respuesta
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.fecha_gasto.isoformat() == "2026-08-31"
 
 
-def test_whatsapp_actualiza_descripcion(client: TestClient, seeded_session: Session) -> None:
-    client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "uber 12000"},
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={"telefono": "573001112233", "texto": "cambia descripción de uber a didi"},
-    )
-    assert res.json()["status"] == "comando"
-    assert "Descripción actualizada" in res.json()["mensaje"]
+def test_actualiza_descripcion(seeded_session: Session) -> None:
+    _msg(seeded_session, "uber 12000")
+    res = _msg(seeded_session, "cambia descripción de uber a didi")
+    assert res.status == "comando"
+    assert "Descripción actualizada" in res.mensaje_respuesta
     mov = seeded_session.query(Movimiento).one()
     seeded_session.refresh(mov)
     assert mov.descripcion == "didi"
 
 
-def test_whatsapp_actualiza_fecha_varios_pide_cual(
-    client: TestClient, seeded_session: Session
-) -> None:
-    client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "uber 20000",
-            "enviado_en": "2026-09-01T10:00:00",
-        },
-    )
-    client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "uber 15000",
-            "enviado_en": "2026-09-01T10:00:00",
-        },
-    )
-    res = client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": "actualiza fecha de uber a ayer",
-            "enviado_en": "2026-09-01T10:00:00",
-        },
-    )
-    assert "Hay varios (2) registros" in res.json()["mensaje"]
+def test_actualiza_fecha_varios_pide_cual(seeded_session: Session) -> None:
+    _msg(seeded_session, "uber 20000", "2026-09-01T10:00:00")
+    _msg(seeded_session, "uber 15000", "2026-09-01T10:00:00")
+    res = _msg(seeded_session, "actualiza fecha de uber a ayer", "2026-09-01T10:00:00")
+    assert "Hay varios (2) registros" in res.mensaje_respuesta
     elegido = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 15_000).one()
     otro = seeded_session.query(Movimiento).filter(Movimiento.monto_cop == 20_000).one()
-    res = client.post(
-        "/webhook/texto",
-        json={
-            "telefono": "573001112233",
-            "texto": str(elegido.id),
-            "enviado_en": "2026-09-01T10:01:00",
-        },
-    )
-    assert "Fecha actualizada" in res.json()["mensaje"]
+    res = _msg(seeded_session, str(elegido.id), "2026-09-01T10:01:00")
+    assert "Fecha actualizada" in res.mensaje_respuesta
     seeded_session.refresh(elegido)
     seeded_session.refresh(otro)
     assert elegido.fecha_gasto.isoformat() == "2026-08-31"

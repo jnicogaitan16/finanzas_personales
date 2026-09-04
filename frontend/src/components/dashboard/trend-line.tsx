@@ -8,27 +8,37 @@ interface TrendProps {
 
 export function TrendLine({ data }: TrendProps) {
   if (!data.length) {
-    return <p className="text-muted-foreground text-sm">Sin datos de tendencia</p>
+    return null
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <h3 className="text-sm font-medium text-muted-foreground mb-4">Tendencia mensual</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <LineChart data={data} margin={{ left: 10, right: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2a3140" />
+    <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs text-gray-400 uppercase tracking-wide">Tendencia mensual</h3>
+        <div className="flex gap-4 text-xs text-gray-500">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-[3px] bg-rose-400 rounded-full" /> Gastos
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-[3px] bg-emerald-400 rounded-full" /> Ingresos
+          </div>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={data} margin={{ left: 0, right: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis
             dataKey="mes"
-            tick={{ fill: "#93a0b5", fontSize: 12 }}
+            tick={{ fill: "#6b7280", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fill: "#93a0b5", fontSize: 11 }}
+            tick={{ fill: "#6b7280", fontSize: 10 }}
             tickFormatter={(v) => `${Math.round(v / 1000)}K`}
             axisLine={false}
             tickLine={false}
-            width={50}
+            width={45}
           />
           <Tooltip
             formatter={(value, name) => [
@@ -36,36 +46,29 @@ export function TrendLine({ data }: TrendProps) {
               name === "gasto" ? "Gastos" : "Ingresos",
             ]}
             contentStyle={{
-              backgroundColor: "#181c24",
-              border: "1px solid #2a3140",
-              borderRadius: "8px",
-              color: "#eef1f6",
+              backgroundColor: "hsl(228,14%,12%)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "12px",
+              color: "#f3f4f6",
+              fontSize: "13px",
             }}
           />
           <Line
             type="monotone"
             dataKey="gasto"
-            stroke="#fda4af"
-            strokeWidth={2}
-            dot={{ r: 4, fill: "#fda4af" }}
+            stroke="#fb7185"
+            strokeWidth={2.5}
+            dot={{ r: 4, fill: "#fb7185", strokeWidth: 0 }}
           />
           <Line
             type="monotone"
             dataKey="ingreso"
-            stroke="#6ee7b7"
-            strokeWidth={2}
-            dot={{ r: 4, fill: "#6ee7b7" }}
+            stroke="#34d399"
+            strokeWidth={2.5}
+            dot={{ r: 4, fill: "#34d399", strokeWidth: 0 }}
           />
         </LineChart>
       </ResponsiveContainer>
-      <div className="flex justify-center gap-6 mt-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-0.5 bg-rose-400 rounded" /> Gastos
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-0.5 bg-primary rounded" /> Ingresos
-        </div>
-      </div>
     </div>
   )
 }

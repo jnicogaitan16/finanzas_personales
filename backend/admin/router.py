@@ -17,12 +17,12 @@ from sqlalchemy.orm import Session
 
 from admin.auth import (
     COOKIE_NAME,
-    generate_totp_uri,
     get_session,
+    get_visible_user_ids,
+    hash_password,
     login,
     logout,
     require_admin,
-    totp_enabled,
 )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -31,12 +31,34 @@ from db.session import get_db
 from services import admin as svc
 from services import balance as svc_balance
 from services import cuotas as svc_cuotas
+from services import ingresos as svc_ingresos
+from services import inteligencia as svc_intel
+from services import tarjetas as svc_tarjetas
 from services import gastos_fijos as svc_gf
 from services import presupuesto as svc_ppto
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 PAGE = Path(__file__).parent / "index.html"
 LOGIN_PAGE = Path(__file__).parent / "login.html"
+
+
+def _filter_user_id(session: dict, db: Session, user_id: int | None) -> int | None:
+    """Si se pide un user_id específico, validar que el logueado pueda verlo.
+    Si no se pide, retornar None solo si el logueado tiene grupo (ve todo el grupo).
+    Si no tiene grupo, forzar a solo ver su propia data."""
+    visible = get_visible_user_ids(session, db)
+    if user_id is not None:
+        if user_id not in visible:
+            return -1  # ID inexistente = sin resultados
+        return user_id
+    # Sin filtro: si tiene grupo ve a todos los del grupo, si no solo él
+    if len(visible) == 1:
+        return visible[0]
+    return None  # ver todos los del grupo
+
+
+def _visible_ids(session: dict, db: Session) -> list[int]:
+    return get_visible_user_ids(session, db)
 
 
 class MovimientoIn(BaseModel):
@@ -108,6 +130,7 @@ class CompraIn(BaseModel):
     valor_total_cop: int
     num_cuotas: int
     tarjeta: str | None = None
+    tarjeta_id: int | None = None
     tasa_ea: float | None = None
     descripcion: str | None = None
     numero_transaccion: str | None = None
@@ -142,27 +165,13 @@ class DeudaIn(BaseModel):
     notas: str | None = None
 
 
-def _render_login(error: str = "") -> str:
-    totp_field = ""
-    if totp_enabled():
-        totp_field = (
-            '<label>Codigo 2FA'
-            '<input name="totp_code" type="text" inputmode="numeric" '
-            'pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" '
-            'placeholder="000000" required>'
-            "</label>"
-            '<p class="totp-hint">Abre tu app de autenticacion (Google Authenticator, Authy)</p>'
-        )
-    html = LOGIN_PAGE.read_text(encoding="utf-8")
-    return html.replace("{error}", error).replace("{totp_field}", totp_field)
-
-
 @router.get("/login", response_class=HTMLResponse, response_model=None)
 def login_page(request: Request) -> HTMLResponse | RedirectResponse:
     token = request.cookies.get(COOKIE_NAME)
     if get_session(token):
         return RedirectResponse("/admin", status_code=302)
-    return HTMLResponse(_render_login())
+    html = LOGIN_PAGE.read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("{error}", "").replace("{totp_field}", ""))
 
 
 @router.post("/login", response_model=None)
@@ -171,12 +180,16 @@ def login_submit(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    totp_code: str | None = Form(None),
+    db: Session = Depends(get_db),
 ) -> RedirectResponse:
     client_ip = request.client.host if request.client else ""
-    token = login(username, password, totp_code, client_ip=client_ip)
+    token = login(db, username, password, client_ip=client_ip)
     if token is None:
-        return HTMLResponse(_render_login("Usuario, contrasena o codigo 2FA incorrectos"), status_code=401)
+        html = LOGIN_PAGE.read_text(encoding="utf-8")
+        return HTMLResponse(
+            html.replace("{error}", "Usuario o contrasena incorrectos").replace("{totp_field}", ""),
+            status_code=401,
+        )
     response = RedirectResponse("/admin", status_code=302)
     response.set_cookie(
         COOKIE_NAME,
@@ -198,70 +211,214 @@ def logout_endpoint(request: Request) -> RedirectResponse:
     return response
 
 
-@router.get("/totp-setup", response_class=HTMLResponse, response_model=None)
-def totp_setup(request: Request) -> str | RedirectResponse:
-    token = request.cookies.get(COOKIE_NAME)
-    if not get_session(token):
-        return RedirectResponse("/admin/login", status_code=302)
-    secret, uri = generate_totp_uri()
-    buf = io.BytesIO()
-    img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
-    img.save(buf)
-    svg = buf.getvalue().decode()
-    enabled = totp_enabled()
-    badge = (
-        '<span class="badge on">Activo</span>'
-        if enabled
-        else '<span class="badge off">Inactivo</span>'
+# ── Registro y Grupos ────────────────────────────────────────────────
+
+
+class RegisterIn(BaseModel):
+    nombre: str
+    password: str
+    codigo_invitacion: str | None = None
+
+
+@router.post("/api/register", status_code=201)
+def api_register(
+    payload: RegisterIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    from db.models import Grupo
+    import secrets as _secrets
+    from datetime import datetime, timedelta, timezone
+
+    nombre = payload.nombre.strip()
+    if not nombre or len(payload.password) < 4:
+        raise HTTPException(status_code=400, detail="Nombre y password (min 4 chars) requeridos")
+
+    if db.query(User).filter(User.nombre == nombre).one_or_none():
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese nombre")
+
+    MAX_MIEMBROS_GRUPO = 2
+
+    grupo_id = None
+    if payload.codigo_invitacion:
+        grupo = (
+            db.query(Grupo)
+            .filter(Grupo.codigo_invitacion == payload.codigo_invitacion.strip())
+            .one_or_none()
+        )
+        if not grupo:
+            raise HTTPException(status_code=400, detail="Codigo de invitacion invalido")
+        now = datetime.now(timezone.utc)
+        if grupo.codigo_expira and grupo.codigo_expira < now:
+            raise HTTPException(status_code=400, detail="Codigo de invitacion expirado")
+        miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
+        if miembros >= MAX_MIEMBROS_GRUPO:
+            raise HTTPException(status_code=400, detail=f"El grupo ya tiene {MAX_MIEMBROS_GRUPO} miembros (limite alcanzado)")
+        grupo_id = grupo.id
+        grupo.codigo_invitacion = None
+        grupo.codigo_expira = None
+
+    user = User(
+        nombre=nombre,
+        numero_whatsapp=_secrets.token_hex(6),  # placeholder
+        password_hash=hash_password(payload.password),
+        grupo_id=grupo_id,
     )
-    return f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>2FA Setup</title>
-<style>
-:root {{ --bg:#0f1115; --card:#181c24; --line:#2a3140; --txt:#eef1f6; --muted:#93a0b5; --acc:#6ee7b7; }}
-* {{ box-sizing: border-box; }}
-body {{ margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--txt); display:flex; justify-content:center; padding:2rem; }}
-.card {{ background:var(--card); border-radius:16px; padding:2rem; width:min(480px, 92vw); }}
-h1 {{ margin:0 0 1rem; font-size:1.3rem; display:flex; align-items:center; gap:.6rem; }}
-h1 span {{ color:var(--acc); }}
-.badge {{ font-size:.75rem; padding:.2rem .6rem; border-radius:20px; font-weight:600; }}
-.badge.on {{ background:#065f46; color:#6ee7b7; }}
-.badge.off {{ background:#7c2d12; color:#fbbf24; }}
-.qr {{ background:#fff; padding:20px; border-radius:16px; display:inline-block; margin:1rem 0; }}
-.qr svg {{ width:220px; height:220px; display:block; }}
-.secret {{ background:var(--bg); padding:.6rem 1rem; border-radius:8px; font-family:monospace; font-size:1.1rem; letter-spacing:.15em; word-break:break-all; user-select:all; cursor:pointer; border:1px solid var(--line); }}
-.steps {{ color:var(--muted); font-size:.9rem; line-height:1.7; }}
-.steps li {{ margin-bottom:.5rem; }}
-.apps {{ display:flex; gap:.5rem; flex-wrap:wrap; margin:.8rem 0; }}
-.apps span {{ background:var(--bg); border:1px solid var(--line); padding:.3rem .7rem; border-radius:8px; font-size:.8rem; }}
-code {{ background:var(--bg); padding:.2rem .5rem; border-radius:6px; font-size:.85rem; }}
-a {{ color:var(--acc); }}
-.back {{ display:inline-block; margin-top:1rem; text-decoration:none; border:1px solid var(--line); padding:.5rem 1rem; border-radius:8px; }}
-</style></head><body>
-<div class="card">
-<h1>Finanzas <span>2FA</span> {badge}</h1>
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
-<p>Escanea el QR desde tu app de contrasenas:</p>
-<div class="apps">
-<span>Contrasenas (Apple)</span>
-<span>Google Authenticator</span>
-<span>Authy</span>
-<span>1Password</span>
-</div>
+    # Si no se vinculó a grupo, crear uno nuevo
+    if not grupo_id:
+        grupo = Grupo(nombre=f"Hogar de {nombre}")
+        db.add(grupo)
+        db.commit()
+        db.refresh(grupo)
+        user.grupo_id = grupo.id
+        db.commit()
 
-<div class="qr">{svg}</div>
+    return {"id": user.id, "nombre": user.nombre, "grupo_id": user.grupo_id}
 
-<p>O copia el secret manualmente:</p>
-<p class="secret">{secret}</p>
 
-<ol class="steps">
-<li>Escanea el QR o copia el secret en tu app</li>
-<li>En <b>Contrasenas de Apple</b>: abre la app &rarr; crea entrada para <code>localhost</code> &rarr; "Configurar codigo de verificacion" &rarr; pega el secret</li>
-<li>Al iniciar sesion, usa el codigo de 6 digitos que genera la app</li>
-</ol>
+MAX_MIEMBROS_GRUPO = 2
 
-<a href="/admin" class="back">&larr; Volver al panel</a>
-</div></body></html>"""
+
+class UnirseGrupoIn(BaseModel):
+    codigo_invitacion: str
+
+
+class CambiarPasswordIn(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
+@router.post("/api/grupo/invitar")
+def api_generar_invitacion(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Genera un código de invitación para el grupo del usuario logueado."""
+    from db.models import Grupo
+    import secrets as _secrets
+    from datetime import datetime, timedelta, timezone
+
+    grupo_id = session.get("grupo_id")
+    if not grupo_id:
+        raise HTTPException(status_code=400, detail="No perteneces a un grupo")
+
+    grupo = db.query(Grupo).filter_by(id=grupo_id).one_or_none()
+    if not grupo:
+        raise HTTPException(status_code=404, detail="Grupo no encontrado")
+
+    miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
+    if miembros >= MAX_MIEMBROS_GRUPO:
+        raise HTTPException(status_code=400, detail=f"Tu grupo ya tiene {MAX_MIEMBROS_GRUPO} miembros")
+
+    codigo = _secrets.token_urlsafe(6)[:8].upper()
+    grupo.codigo_invitacion = codigo
+    grupo.codigo_expira = datetime.now(timezone.utc) + timedelta(hours=24)
+    db.commit()
+
+    return {"codigo": codigo, "expira_en": "24 horas"}
+
+
+@router.get("/api/me")
+def api_me(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    from db.models import Grupo
+    from datetime import datetime, timezone
+    user = db.query(User).filter_by(id=session["user_id"]).one_or_none()
+    if not user:
+        raise HTTPException(status_code=404)
+
+    grupo = None
+    miembros = []
+    codigo_activo = None
+    if user.grupo_id:
+        g = db.query(Grupo).filter_by(id=user.grupo_id).one_or_none()
+        if g:
+            grupo = {"id": g.id, "nombre": g.nombre}
+            miembros = [
+                {"id": m.id, "nombre": m.nombre}
+                for m in db.query(User).filter_by(grupo_id=g.id).all()
+            ]
+            if g.codigo_invitacion and g.codigo_expira and g.codigo_expira > datetime.now(timezone.utc):
+                codigo_activo = g.codigo_invitacion
+
+    return {
+        "id": user.id,
+        "nombre": user.nombre,
+        "grupo": grupo,
+        "miembros": miembros,
+        "codigo_invitacion_activo": codigo_activo,
+        "max_miembros": MAX_MIEMBROS_GRUPO,
+    }
+
+
+@router.post("/api/grupo/unirse")
+def api_unirse_grupo(
+    payload: UnirseGrupoIn,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    from db.models import Grupo
+    from datetime import datetime, timezone
+
+    user = db.query(User).filter_by(id=session["user_id"]).one()
+
+    # Verificar que no esté ya en un grupo con otros miembros
+    if user.grupo_id:
+        otros = db.query(User).filter(User.grupo_id == user.grupo_id, User.id != user.id).count()
+        if otros > 0:
+            raise HTTPException(status_code=400, detail="Ya perteneces a un grupo familiar")
+
+    grupo = (
+        db.query(Grupo)
+        .filter(Grupo.codigo_invitacion == payload.codigo_invitacion.strip())
+        .one_or_none()
+    )
+    if not grupo:
+        raise HTTPException(status_code=400, detail="Codigo invalido")
+    now = datetime.now(timezone.utc)
+    if grupo.codigo_expira and grupo.codigo_expira < now:
+        raise HTTPException(status_code=400, detail="Codigo expirado")
+    miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
+    if miembros >= MAX_MIEMBROS_GRUPO:
+        raise HTTPException(status_code=400, detail=f"El grupo ya tiene {MAX_MIEMBROS_GRUPO} miembros")
+
+    # Eliminar grupo anterior si estaba solo
+    old_grupo_id = user.grupo_id
+    user.grupo_id = grupo.id
+    grupo.codigo_invitacion = None
+    grupo.codigo_expira = None
+    db.commit()
+
+    # Limpiar grupo vacío
+    if old_grupo_id:
+        remaining = db.query(User).filter(User.grupo_id == old_grupo_id).count()
+        if remaining == 0:
+            db.query(Grupo).filter_by(id=old_grupo_id).delete()
+            db.commit()
+
+    return {"status": "ok", "grupo": grupo.nombre}
+
+
+@router.post("/api/cambiar-password")
+def api_cambiar_password(
+    payload: CambiarPasswordIn,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    from admin.auth import _verify_password
+    user = db.query(User).filter_by(id=session["user_id"]).one()
+    if not _verify_password(payload.password_actual, user.password_hash):
+        raise HTTPException(status_code=400, detail="Contrasena actual incorrecta")
+    if len(payload.password_nueva) < 4:
+        raise HTTPException(status_code=400, detail="La nueva contrasena debe tener al menos 4 caracteres")
+    user.password_hash = hash_password(payload.password_nueva)
+    db.commit()
+    return {"status": "ok"}
 
 
 @router.get("", response_class=HTMLResponse, response_model=None)
@@ -274,22 +431,24 @@ def panel(request: Request) -> str | RedirectResponse:
 
 @router.get("/api/movimientos")
 def api_listar_movimientos(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_id=user_id)]
+    uid = _filter_user_id(session, db, user_id)
+    return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_id=uid)]
 
 
 @router.get("/api/movimientos/export-csv")
 def api_exportar_csv(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     user_id: int | None = None,
     mes: str | None = None,
 ) -> StreamingResponse:
-    movs = svc.listar_movimientos(db, limit=10000, user_id=user_id)
+    uid = _filter_user_id(session, db, user_id)
+    movs = svc.listar_movimientos(db, limit=10000, user_id=uid)
     if mes:
         movs = [m for m in movs if m.fecha_gasto and str(m.fecha_gasto).startswith(mes)]
 
@@ -320,7 +479,7 @@ def api_exportar_csv(
 @router.post("/api/movimientos", status_code=201)
 def api_crear_movimiento(
     payload: MovimientoIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
@@ -346,7 +505,7 @@ def api_crear_movimiento(
 def api_actualizar_movimiento(
     movimiento_id: int,
     payload: MovimientoPatch,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     movimiento = svc.obtener_movimiento(db, movimiento_id)
@@ -375,7 +534,7 @@ def api_actualizar_movimiento(
 @router.delete("/api/movimientos/{movimiento_id}")
 def api_eliminar_movimiento(
     movimiento_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     movimiento = svc.obtener_movimiento(db, movimiento_id)
@@ -387,7 +546,7 @@ def api_eliminar_movimiento(
 
 @router.get("/api/categorias")
 def api_listar_categorias(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, int | str]]:
     cats = db.query(Categoria).order_by(Categoria.id).all()
@@ -397,7 +556,7 @@ def api_listar_categorias(
 @router.post("/api/categorias", status_code=201)
 def api_crear_categoria(
     payload: CategoriaIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
     try:
@@ -411,7 +570,7 @@ def api_crear_categoria(
 def api_actualizar_categoria(
     categoria_id: int,
     payload: CategoriaIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
     cat = db.query(Categoria).filter(Categoria.id == categoria_id).one_or_none()
@@ -427,7 +586,7 @@ def api_actualizar_categoria(
 @router.delete("/api/categorias/{categoria_id}")
 def api_eliminar_categoria(
     categoria_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     cat = db.query(Categoria).filter(Categoria.id == categoria_id).one_or_none()
@@ -442,17 +601,18 @@ def api_eliminar_categoria(
 
 @router.get("/api/usuarios")
 def api_listar_usuarios(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, int | str]]:
-    users = db.query(User).order_by(User.id).all()
+    visible = _visible_ids(session, db)
+    users = db.query(User).filter(User.id.in_(visible)).order_by(User.id).all()
     return [{"id": u.id, "nombre": u.nombre, "numero_whatsapp": u.numero_whatsapp} for u in users]
 
 
 @router.post("/api/usuarios", status_code=201)
 def api_crear_usuario(
     payload: UsuarioIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
     try:
@@ -466,7 +626,7 @@ def api_crear_usuario(
 def api_actualizar_usuario(
     user_id: int,
     payload: UsuarioIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
     user = db.query(User).filter(User.id == user_id).one_or_none()
@@ -487,7 +647,7 @@ def api_actualizar_usuario(
 @router.delete("/api/usuarios/{user_id}")
 def api_eliminar_usuario(
     user_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     user = db.query(User).filter(User.id == user_id).one_or_none()
@@ -505,19 +665,20 @@ def api_eliminar_usuario(
 
 @router.get("/api/presupuestos")
 def api_listar_presupuestos(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     user_id: int | None = None,
     mes: str | None = None,
 ) -> list[dict[str, Any]]:
-    return [svc_ppto.serializar_presupuesto(p) for p in svc_ppto.listar_presupuestos(db, user_id=user_id, mes=mes)]
+    uid = _filter_user_id(session, db, user_id)
+    return [svc_ppto.serializar_presupuesto(p) for p in svc_ppto.listar_presupuestos(db, user_id=uid, mes=mes)]
 
 
 @router.get("/api/presupuestos/resumen")
 def api_resumen_presupuestos(
     user_id: int,
     mes: str,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     return svc_ppto.presupuesto_vs_real(db, user_id=user_id, mes=mes)
@@ -526,7 +687,7 @@ def api_resumen_presupuestos(
 @router.post("/api/presupuestos", status_code=201)
 def api_crear_presupuesto(
     payload: PresupuestoIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
@@ -545,7 +706,7 @@ def api_crear_presupuesto(
 @router.delete("/api/presupuestos/{presupuesto_id}")
 def api_eliminar_presupuesto(
     presupuesto_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     p = db.query(Presupuesto).filter(Presupuesto.id == presupuesto_id).one_or_none()
@@ -560,17 +721,18 @@ def api_eliminar_presupuesto(
 
 @router.get("/api/gastos-fijos")
 def api_listar_gastos_fijos(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    return [svc_gf.serializar_gasto_fijo(gf) for gf in svc_gf.listar_gastos_fijos(db, user_id=user_id)]
+    uid = _filter_user_id(session, db, user_id)
+    return [svc_gf.serializar_gasto_fijo(gf) for gf in svc_gf.listar_gastos_fijos(db, user_id=uid)]
 
 
 @router.post("/api/gastos-fijos", status_code=201)
 def api_crear_gasto_fijo(
     payload: GastoFijoIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
@@ -593,7 +755,7 @@ def api_crear_gasto_fijo(
 def api_actualizar_gasto_fijo(
     gasto_fijo_id: int,
     payload: GastoFijoPatch,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     gf = db.query(GastoFijo).filter(GastoFijo.id == gasto_fijo_id).one_or_none()
@@ -619,7 +781,7 @@ def api_actualizar_gasto_fijo(
 @router.delete("/api/gastos-fijos/{gasto_fijo_id}")
 def api_eliminar_gasto_fijo(
     gasto_fijo_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     gf = db.query(GastoFijo).filter(GastoFijo.id == gasto_fijo_id).one_or_none()
@@ -629,22 +791,292 @@ def api_eliminar_gasto_fijo(
     return {"status": "ok"}
 
 
+# ── Inteligencia Financiera ──────────────────────────────────────────
+
+
+@router.get("/api/flujo-caja")
+def api_flujo_caja(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    mes: str | None = None,
+    user_id: int | None = None,
+) -> dict:
+    uid = _filter_user_id(session, db, user_id)
+    return svc_intel.flujo_de_caja(db, mes=mes, user_id=uid)
+
+
+@router.get("/api/alertas")
+def api_alertas(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+) -> list[dict]:
+    uid = _filter_user_id(session, db, user_id)
+    return svc_intel.obtener_alertas(db, user_id=uid)
+
+
+@router.get("/api/salud-financiera")
+def api_salud_financiera(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+) -> dict:
+    uid = _filter_user_id(session, db, user_id)
+    return svc_intel.salud_financiera(db, user_id=uid)
+
+
+# ── Ingresos Recurrentes ─────────────────────────────────────────────
+
+
+class IngresoIn(BaseModel):
+    user_id: int
+    nombre: str
+    tipo: str = "fijo"
+    frecuencia: str = "mensual"
+    monto_cop: int
+    dia_pago_1: int | None = None
+    dia_pago_2: int | None = None
+
+
+class IngresoPatch(BaseModel):
+    nombre: str | None = None
+    tipo: str | None = None
+    frecuencia: str | None = None
+    monto_cop: int | None = None
+    dia_pago_1: int | None = None
+    dia_pago_2: int | None = None
+    activo: bool | None = None
+
+
+@router.get("/api/ingresos")
+def api_listar_ingresos(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+) -> list[dict]:
+    uid = _filter_user_id(session, db, user_id)
+    return [svc_ingresos.serializar_ingreso(i) for i in svc_ingresos.listar_ingresos(db, user_id=uid)]
+
+
+@router.post("/api/ingresos", status_code=201)
+def api_crear_ingreso(
+    payload: IngresoIn,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        ingreso = svc_ingresos.crear_ingreso(
+            db,
+            user_id=payload.user_id,
+            nombre=payload.nombre,
+            tipo=payload.tipo,
+            frecuencia=payload.frecuencia,
+            monto_cop=payload.monto_cop,
+            dia_pago_1=payload.dia_pago_1,
+            dia_pago_2=payload.dia_pago_2,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return svc_ingresos.serializar_ingreso(ingreso)
+
+
+@router.patch("/api/ingresos/{ingreso_id}")
+def api_actualizar_ingreso(
+    ingreso_id: int,
+    payload: IngresoPatch,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    ingreso = svc_ingresos.obtener_ingreso(db, ingreso_id)
+    if ingreso is None:
+        raise HTTPException(status_code=404, detail="Ingreso no encontrado")
+    try:
+        actualizado = svc_ingresos.actualizar_ingreso(
+            db,
+            ingreso,
+            nombre=payload.nombre,
+            tipo=payload.tipo,
+            frecuencia=payload.frecuencia,
+            monto_cop=payload.monto_cop,
+            dia_pago_1=payload.dia_pago_1,
+            dia_pago_2=payload.dia_pago_2,
+            activo=payload.activo,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return svc_ingresos.serializar_ingreso(actualizado)
+
+
+@router.delete("/api/ingresos/{ingreso_id}")
+def api_eliminar_ingreso(
+    ingreso_id: int,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    ingreso = svc_ingresos.obtener_ingreso(db, ingreso_id)
+    if ingreso is None:
+        raise HTTPException(status_code=404, detail="Ingreso no encontrado")
+    svc_ingresos.eliminar_ingreso(db, ingreso)
+    return {"status": "ok"}
+
+
+@router.get("/api/ingresos/resumen")
+def api_resumen_ingresos(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    mes: str | None = None,
+    user_id: int | None = None,
+) -> dict:
+    if not mes:
+        from tiempo import ahora_bogota
+        mes = ahora_bogota().strftime("%Y-%m")
+    # Auto-registrar ingresos fijos del mes consultado
+    svc_ingresos.sincronizar_ingresos_fijos(db, mes=mes)
+    uid = _filter_user_id(session, db, user_id)
+    return svc_ingresos.resumen_ingresos(db, mes=mes, user_id=uid)
+
+
+# ── Tarjetas de Crédito ──────────────────────────────────────────────
+
+
+class TarjetaIn(BaseModel):
+    user_id: int
+    banco: str
+    nombre: str
+    ultimos_4: str | None = None
+    fecha_corte: int
+    fecha_pago: int
+    tasa_ea: float | None = None
+    cupo_total_cop: int | None = None
+
+
+class TarjetaPatch(BaseModel):
+    banco: str | None = None
+    nombre: str | None = None
+    ultimos_4: str | None = None
+    fecha_corte: int | None = None
+    fecha_pago: int | None = None
+    tasa_ea: float | None = None
+    cupo_total_cop: int | None = None
+    activa: bool | None = None
+
+
+@router.get("/api/tarjetas")
+def api_listar_tarjetas(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+) -> list[dict]:
+    uid = _filter_user_id(session, db, user_id)
+    tarjetas = svc_tarjetas.listar_tarjetas(db, user_id=uid)
+    return [svc_tarjetas.serializar_tarjeta(t) for t in tarjetas]
+
+
+@router.post("/api/tarjetas", status_code=201)
+def api_crear_tarjeta(
+    payload: TarjetaIn,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        tarjeta = svc_tarjetas.crear_tarjeta(
+            db,
+            user_id=payload.user_id,
+            banco=payload.banco,
+            nombre=payload.nombre,
+            ultimos_4=payload.ultimos_4,
+            fecha_corte=payload.fecha_corte,
+            fecha_pago=payload.fecha_pago,
+            tasa_ea=payload.tasa_ea,
+            cupo_total_cop=payload.cupo_total_cop,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return svc_tarjetas.serializar_tarjeta(tarjeta)
+
+
+@router.patch("/api/tarjetas/{tarjeta_id}")
+def api_actualizar_tarjeta(
+    tarjeta_id: int,
+    payload: TarjetaPatch,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    tarjeta = svc_tarjetas.obtener_tarjeta(db, tarjeta_id)
+    if tarjeta is None:
+        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
+    try:
+        actualizada = svc_tarjetas.actualizar_tarjeta(
+            db,
+            tarjeta,
+            banco=payload.banco,
+            nombre=payload.nombre,
+            ultimos_4=payload.ultimos_4,
+            fecha_corte=payload.fecha_corte,
+            fecha_pago=payload.fecha_pago,
+            tasa_ea=payload.tasa_ea,
+            cupo_total_cop=payload.cupo_total_cop,
+            activa=payload.activa,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return svc_tarjetas.serializar_tarjeta(actualizada)
+
+
+@router.delete("/api/tarjetas/{tarjeta_id}")
+def api_eliminar_tarjeta(
+    tarjeta_id: int,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    tarjeta = svc_tarjetas.obtener_tarjeta(db, tarjeta_id)
+    if tarjeta is None:
+        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
+    svc_tarjetas.eliminar_tarjeta(db, tarjeta)
+    return {"status": "ok"}
+
+
+@router.get("/api/tarjetas/{tarjeta_id}/proyeccion")
+def api_proyeccion_tarjeta(
+    tarjeta_id: int,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    meses: int = 6,
+) -> dict:
+    tarjeta = svc_tarjetas.obtener_tarjeta(db, tarjeta_id)
+    if tarjeta is None:
+        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
+    return svc_tarjetas.proyectar_cuotas_por_mes(db, tarjeta_id=tarjeta_id, meses=meses)
+
+
+@router.get("/api/proyeccion-cuotas")
+def api_proyeccion_cuotas_global(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+    meses: int = 6,
+) -> dict:
+    uid = _filter_user_id(session, db, user_id)
+    return svc_tarjetas.proyectar_cuotas_por_mes(db, user_id=uid, meses=meses)
+
+
 # ── Cuotas TDC ────────────────────────────────────────────────────────
 
 
 @router.get("/api/cuotas")
 def api_listar_cuotas(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    return [svc_cuotas.serializar_compra(c) for c in svc_cuotas.listar_compras(db, user_id=user_id)]
+    uid = _filter_user_id(session, db, user_id)
+    return [svc_cuotas.serializar_compra(c) for c in svc_cuotas.listar_compras(db, user_id=uid)]
 
 
 @router.post("/api/cuotas", status_code=201)
 def api_crear_cuota(
     payload: CompraIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
@@ -656,6 +1088,7 @@ def api_crear_cuota(
             valor_total_cop=payload.valor_total_cop,
             num_cuotas=payload.num_cuotas,
             tarjeta=payload.tarjeta,
+            tarjeta_id=payload.tarjeta_id,
             tasa_ea=payload.tasa_ea,
             descripcion=payload.descripcion,
             numero_transaccion=payload.numero_transaccion,
@@ -670,7 +1103,7 @@ def api_crear_cuota(
 @router.post("/api/cuotas/{compra_id}/pago", status_code=201)
 def api_registrar_pago_cuota(
     compra_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     compra = svc_cuotas.obtener_compra(db, compra_id)
@@ -687,7 +1120,7 @@ def api_registrar_pago_cuota(
 def api_actualizar_cuota(
     compra_id: int,
     payload: CompraPatch,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     compra = svc_cuotas.obtener_compra(db, compra_id)
@@ -746,7 +1179,7 @@ def api_actualizar_cuota(
 @router.delete("/api/cuotas/{compra_id}")
 def api_eliminar_cuota(
     compra_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     compra = svc_cuotas.obtener_compra(db, compra_id)
@@ -761,7 +1194,7 @@ def api_eliminar_cuota(
 
 @router.get("/api/compartido")
 def api_balance_compartido(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     mes: str | None = None,
 ) -> dict[str, Any]:
@@ -773,13 +1206,15 @@ def api_balance_compartido(
 
 @router.get("/api/deudas")
 def api_listar_deudas(
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    q = db.query(Deuda)
+    visible = _visible_ids(session, db)
+    q = db.query(Deuda).filter(Deuda.user_id.in_(visible))
     if user_id is not None:
-        q = q.filter(Deuda.user_id == user_id)
+        uid = _filter_user_id(session, db, user_id)
+        q = db.query(Deuda).filter(Deuda.user_id == uid)
     deudas = q.order_by(Deuda.id).all()
     return [
         {
@@ -804,7 +1239,7 @@ def api_listar_deudas(
 @router.post("/api/deudas", status_code=201)
 def api_crear_deuda(
     payload: DeudaIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     if db.query(User).filter(User.id == payload.user_id).one_or_none() is None:
@@ -842,7 +1277,7 @@ def api_crear_deuda(
 def api_actualizar_deuda(
     deuda_id: int,
     payload: DeudaIn,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     d = db.query(Deuda).filter(Deuda.id == deuda_id).one_or_none()
@@ -876,7 +1311,7 @@ def api_actualizar_deuda(
 @router.delete("/api/deudas/{deuda_id}")
 def api_eliminar_deuda(
     deuda_id: int,
-    _: str = Depends(require_admin),
+    session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     d = db.query(Deuda).filter(Deuda.id == deuda_id).one_or_none()

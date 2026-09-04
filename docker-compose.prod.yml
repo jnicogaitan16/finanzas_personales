@@ -10,13 +10,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@postgres:5432/finanzas
       REDIS_URL: redis://redis:6379/1
       TZ: America/Bogota
-      EVOLUTION_API_URL: http://evolution:8080
-      EVOLUTION_WEBHOOK_URL: ${WEBHOOK_BASE_URL}/webhook/evolution
     depends_on:
       postgres:
         condition: service_healthy
-      evolution:
-        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
@@ -61,43 +57,6 @@ services:
       timeout: 3s
       retries: 10
 
-  evolution:
-    image: evoapicloud/evolution-api:v2.3.7
-    restart: unless-stopped
-    dns:
-      - 1.1.1.1
-      - 1.0.0.1
-    environment:
-      TZ: America/Bogota
-      SERVER_URL: ${WEBHOOK_BASE_URL}
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
-      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
-      DATABASE_ENABLED: "true"
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/evolution
-      DATABASE_CONNECTION_CLIENT_NAME: finanzas
-      DATABASE_SAVE_DATA_INSTANCE: "true"
-      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
-      DATABASE_SAVE_MESSAGE_UPDATE: "false"
-      DATABASE_SAVE_DATA_CONTACTS: "false"
-      DATABASE_SAVE_DATA_CHATS: "false"
-      CACHE_REDIS_ENABLED: "true"
-      CACHE_REDIS_URI: redis://redis:6379/0
-      CACHE_REDIS_PREFIX_KEY: finanzas
-      CACHE_LOCAL_ENABLED: "false"
-      QRCODE_LIMIT: "30"
-      CONFIG_SESSION_PHONE_CLIENT: Finanzas
-      CONFIG_SESSION_PHONE_NAME: Chrome
-      LANGUAGE: es
-      DEL_INSTANCE: "false"
-    volumes:
-      - evolution_instances:/evolution/instances
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -136,6 +95,5 @@ services:
 volumes:
   pg_data:
   redis_data:
-  evolution_instances:
   caddy_data:
   caddy_config:

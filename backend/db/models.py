@@ -23,18 +23,37 @@ class Base(DeclarativeBase):
     pass
 
 
+class Grupo(Base):
+    __tablename__ = "grupos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    codigo_invitacion: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    codigo_expira: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    miembros: Mapped[list[User]] = relationship(back_populates="grupo")
+
+    def __repr__(self) -> str:
+        return f"<Grupo id={self.id} nombre={self.nombre!r}>"
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     numero_whatsapp: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grupo_id: Mapped[int | None] = mapped_column(ForeignKey("grupos.id"), nullable=True, index=True)
 
+    grupo: Mapped[Grupo | None] = relationship(back_populates="miembros")
     movimientos: Mapped[list[Movimiento]] = relationship(back_populates="user")
     presupuestos: Mapped[list[Presupuesto]] = relationship(back_populates="user")
     compras_cuotas: Mapped[list[CompraCuotas]] = relationship(back_populates="user")
     deudas: Mapped[list[Deuda]] = relationship(back_populates="user")
     gastos_fijos: Mapped[list[GastoFijo]] = relationship(back_populates="user")
+    tarjetas: Mapped[list[TarjetaCredito]] = relationship(back_populates="user")
+    ingresos: Mapped[list[IngresoRecurrente]] = relationship(back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User id={self.id} nombre={self.nombre!r}>"
@@ -101,11 +120,38 @@ class Movimiento(Base):
         return f"<Movimiento id={self.id} monto_cop={self.monto_cop}>"
 
 
+class TarjetaCredito(Base):
+    __tablename__ = "tarjetas_credito"
+    __table_args__ = (
+        UniqueConstraint("user_id", "nombre", name="uq_tarjeta_user_nombre"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    banco: Mapped[str] = mapped_column(Text, nullable=False)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    ultimos_4: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fecha_corte: Mapped[int] = mapped_column(Integer, nullable=False)
+    fecha_pago: Mapped[int] = mapped_column(Integer, nullable=False)
+    tasa_ea: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cupo_total_cop: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    user: Mapped[User] = relationship(back_populates="tarjetas")
+    compras: Mapped[list[CompraCuotas]] = relationship(back_populates="tarjeta_rel")
+
+    def __repr__(self) -> str:
+        return f"<TarjetaCredito id={self.id} nombre={self.nombre!r} banco={self.banco!r}>"
+
+
 class CompraCuotas(Base):
     __tablename__ = "compras_cuotas"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    tarjeta_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tarjetas_credito.id"), nullable=True, index=True,
+    )
     fecha_compra: Mapped[date] = mapped_column(Date, nullable=False)
     establecimiento: Mapped[str] = mapped_column(Text, nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -120,9 +166,11 @@ class CompraCuotas(Base):
     saldo_pendiente_cop: Mapped[int] = mapped_column(Integer, nullable=False)
     liquidada: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fecha_ultima_cuota: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fecha_primera_cuota: Mapped[date | None] = mapped_column(Date, nullable=True)
     eliminado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     user: Mapped[User] = relationship(back_populates="compras_cuotas")
+    tarjeta_rel: Mapped[TarjetaCredito | None] = relationship(back_populates="compras")
     pagos: Mapped[list[Movimiento]] = relationship(back_populates="compra_cuotas")
 
     @property
@@ -197,7 +245,7 @@ class AuditLog(Base):
     accion: Mapped[str] = mapped_column(Text, nullable=False)
     valores_anteriores: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     valores_nuevos: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
-    origen: Mapped[str] = mapped_column(Text, nullable=False, default="whatsapp")
+    origen: Mapped[str] = mapped_column(Text, nullable=False, default="admin")
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
@@ -238,3 +286,30 @@ class Presupuesto(Base):
             f"<Presupuesto id={self.id} mes={self.mes_vigente!r} "
             f"limite={self.monto_limite_cop}>"
         )
+
+
+class IngresoRecurrente(Base):
+    __tablename__ = "ingresos_recurrentes"
+    __table_args__ = (
+        UniqueConstraint("user_id", "nombre", name="uq_ingreso_user_nombre"),
+        CheckConstraint("tipo IN ('fijo', 'variable')", name="ck_ingreso_tipo"),
+        CheckConstraint(
+            "frecuencia IN ('mensual', 'quincenal', 'semanal', 'anual')",
+            name="ck_ingreso_frecuencia",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    tipo: Mapped[str] = mapped_column(Text, nullable=False, default="fijo")
+    frecuencia: Mapped[str] = mapped_column(Text, nullable=False, default="mensual")
+    monto_cop: Mapped[int] = mapped_column(Integer, nullable=False)
+    dia_pago_1: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dia_pago_2: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    user: Mapped[User] = relationship(back_populates="ingresos")
+
+    def __repr__(self) -> str:
+        return f"<IngresoRecurrente id={self.id} nombre={self.nombre!r} tipo={self.tipo!r}>"

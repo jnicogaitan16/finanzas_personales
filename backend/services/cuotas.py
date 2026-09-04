@@ -4,7 +4,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session, joinedload, subqueryload
 
-from db.models import Categoria, CompraCuotas, Movimiento, User
+from db.models import Categoria, CompraCuotas, Movimiento, TarjetaCredito, User
 from services.audit import registrar_creacion
 from tiempo import ahora_bogota
 
@@ -18,6 +18,7 @@ def crear_compra(
     valor_total_cop: int,
     num_cuotas: int,
     tarjeta: str | None = None,
+    tarjeta_id: int | None = None,
     tasa_ea: float | None = None,
     es_compartido: bool = False,
     descripcion: str | None = None,
@@ -31,8 +32,24 @@ def crear_compra(
     if db.query(User).filter_by(id=user_id).one_or_none() is None:
         raise ValueError("Usuario no existe")
     valor_cuota = valor_total_cop // num_cuotas
+
+    # Calcular fecha primera cuota si hay tarjeta vinculada
+    fecha_primera_cuota = None
+    if tarjeta_id:
+        t = db.query(TarjetaCredito).filter_by(id=tarjeta_id).one_or_none()
+        if t:
+            from services.tarjetas import calcular_fecha_primera_cuota
+            fecha_primera_cuota = calcular_fecha_primera_cuota(
+                fecha_compra, t.fecha_corte, t.fecha_pago,
+            )
+            if not tarjeta:
+                tarjeta = t.nombre
+            if tasa_ea is None and t.tasa_ea:
+                tasa_ea = t.tasa_ea
+
     compra = CompraCuotas(
         user_id=user_id,
+        tarjeta_id=tarjeta_id,
         fecha_compra=fecha_compra,
         establecimiento=establecimiento.strip(),
         descripcion=descripcion,
@@ -43,6 +60,7 @@ def crear_compra(
         numero_transaccion=numero_transaccion,
         tarjeta=tarjeta,
         saldo_pendiente_cop=valor_total_cop,
+        fecha_primera_cuota=fecha_primera_cuota,
     )
     db.add(compra)
     db.commit()
@@ -114,7 +132,7 @@ def listar_compras(
 ) -> list[CompraCuotas]:
     q = (
         db.query(CompraCuotas)
-        .options(joinedload(CompraCuotas.user), subqueryload(CompraCuotas.pagos))
+        .options(joinedload(CompraCuotas.user), joinedload(CompraCuotas.tarjeta_rel), subqueryload(CompraCuotas.pagos))
         .filter(CompraCuotas.eliminado_en.is_(None))
     )
     if user_id:
@@ -149,10 +167,14 @@ def serializar_compra(c: CompraCuotas, db: Session | None = None) -> dict:
                     break
     except Exception:
         pass
+    tarjeta_nombre = c.tarjeta
+    if c.tarjeta_rel:
+        tarjeta_nombre = c.tarjeta_rel.nombre
     return {
         "id": c.id,
         "user_id": c.user_id,
         "usuario": c.user.nombre if c.user else None,
+        "tarjeta_id": c.tarjeta_id,
         "fecha_compra": c.fecha_compra.isoformat() if c.fecha_compra else None,
         "establecimiento": c.establecimiento,
         "descripcion": c.descripcion,
@@ -163,7 +185,7 @@ def serializar_compra(c: CompraCuotas, db: Session | None = None) -> dict:
         "valor_intereses_cop": c.valor_intereses_cop,
         "tasa_ea": c.tasa_ea,
         "numero_transaccion": c.numero_transaccion,
-        "tarjeta": c.tarjeta,
+        "tarjeta": tarjeta_nombre,
         "saldo_pendiente_cop": c.saldo_pendiente_cop,
         "liquidada": c.liquidada,
         "cuotas_restantes": c.cuotas_restantes,
