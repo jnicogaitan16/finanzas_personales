@@ -92,11 +92,28 @@ jobs:
           DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
 
       - name: Seed test users
+        working-directory: backend
         run: |
-          PGPASSWORD=evolution psql -h localhost -p 5433 -U evolution finanzas -c "
-            INSERT INTO users (nombre, numero_whatsapp) VALUES ('Nico', '573001112233'), ('Daylyng', '573004445566')
-            ON CONFLICT DO NOTHING;
+          python -c "
+          from admin.auth import hash_password
+          from db.session import SessionLocal
+          from db.models import Base, Grupo, User
+          from sqlalchemy import create_engine
+          engine = create_engine('postgresql+psycopg://evolution:evolution@localhost:5433/finanzas')
+          db = SessionLocal()
+          g = Grupo(nombre='Test Hogar')
+          db.add(g)
+          db.commit()
+          db.refresh(g)
+          h = hash_password('testpass123')
+          db.add(User(nombre='Nico', numero_whatsapp='573001112233', password_hash=h, grupo_id=g.id))
+          db.add(User(nombre='Daylyng', numero_whatsapp='573004445566', password_hash=h, grupo_id=g.id))
+          db.commit()
+          print('Users seeded with passwords')
+          db.close()
           "
+        env:
+          DATABASE_URL: postgresql+psycopg://evolution:evolution@localhost:5433/finanzas
 
       - name: Start backend
         working-directory: backend
