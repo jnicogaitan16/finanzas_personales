@@ -1,38 +1,21 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useAuth } from "@/hooks/use-auth"
+import { useUserFilter } from "@/hooks/use-user-filter"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
-import { useSort } from "@/hooks/use-sort"
 import { formatCOP, formatDate } from "@/lib/format"
-import type { Movimiento, Categoria, Usuario } from "@/lib/types"
-import { Download } from "lucide-react"
-import { SortableHead } from "@/components/ui/sortable-head"
+import { getCategoryColor } from "@/lib/constants"
+import type { Movimiento, Categoria, Usuario, TarjetaCredito } from "@/lib/types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
 interface FormState {
   user_id: string
@@ -44,6 +27,7 @@ interface FormState {
   medio_pago: string
   es_compartido: boolean
   num_cuotas: string
+  tarjeta_id: string
 }
 
 const emptyForm: FormState = {
@@ -56,6 +40,7 @@ const emptyForm: FormState = {
   medio_pago: "cuenta_ahorros",
   es_compartido: false,
   num_cuotas: "1",
+  tarjeta_id: "",
 }
 
 const MEDIOS_PAGO = [
@@ -71,10 +56,12 @@ function medioPagoLabel(value: string | null | undefined): string {
 }
 
 export default function MovimientosPage() {
+  const { userId } = useAuth()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Movimiento | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
-  const [filterUser, setFilterUser] = useState<string>("todos")
+  const { selectedUser: filterUser, usuarios } = useUserFilter()
+  const grupoLleno = usuarios.length >= 2
   const [saving, setSaving] = useState(false)
 
   // Open dialog when navigated with ?new=1 (FAB button)
@@ -99,9 +86,14 @@ export default function MovimientosPage() {
     5000,
   )
 
-  const { data: usuarios, refetch: refetchUsr } = usePolling<Usuario[]>(
+  const { data: usuariosList, refetch: refetchUsr } = usePolling<Usuario[]>(
     () => api.get("/api/usuarios"),
     5000,
+  )
+
+  const { data: tarjetas } = usePolling<TarjetaCredito[]>(
+    () => api.get("/api/tarjetas"),
+    10000,
   )
 
   function refetch() {
@@ -128,6 +120,7 @@ export default function MovimientosPage() {
       medio_pago: m.medio_pago ?? "cuenta_ahorros",
       es_compartido: m.es_compartido ?? false,
       num_cuotas: "1",
+      tarjeta_id: "",
     })
     setDialogOpen(true)
   }
@@ -148,7 +141,7 @@ export default function MovimientosPage() {
     setSaving(true)
     try {
       const base = {
-        user_id: Number(form.user_id),
+        user_id: editing ? editing.user_id : userId,
         categoria_id: form.categoria_id ? Number(form.categoria_id) : null,
         monto_cop: Number(form.monto_cop),
         descripcion: form.descripcion || null,
@@ -181,12 +174,12 @@ export default function MovimientosPage() {
         if (form.medio_pago === "tarjeta_credito") {
           try {
             const cuotaRes = await api.post<{ id?: number }>("/api/cuotas", {
-              user_id: Number(form.user_id),
+              user_id: userId,
               fecha_compra: form.fecha_gasto || new Date().toISOString().split("T")[0],
               establecimiento: form.descripcion || "Compra TC",
               valor_total_cop: Number(form.monto_cop),
               num_cuotas: numCuotas,
-              tarjeta: "TC",
+              tarjeta_id: form.tarjeta_id ? Number(form.tarjeta_id) : null,
               es_compartido: form.es_compartido,
               movimiento_id: res?.id,
             })
@@ -209,154 +202,144 @@ export default function MovimientosPage() {
 
   const filtered = (movimientos ?? []).filter((m) => {
     if (filterUser === "todos") return true
-    return m.usuario?.toLowerCase() === filterUser.toLowerCase()
+    return String(m.user_id) === filterUser
   })
 
-  const { sorted, sort, toggle } = useSort(filtered, "fecha_gasto")
+  const sorted = [...filtered].sort((a, b) => {
+    const da = a.fecha_gasto || ""
+    const db2 = b.fecha_gasto || ""
+    return db2.localeCompare(da)
+  })
+
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+
+  // Colores únicos por usuario para diferenciar iniciales iguales
+  const USER_COLORS = ["#8b5cf6", "#06b6d4", "#f472b6", "#fbbf24", "#34d399", "#fb923c"]
+  const userColorMap = Object.fromEntries(
+    (usuarios.length > 0 ? usuarios : []).map((u, i) => [u.id, USER_COLORS[i % USER_COLORS.length]])
+  )
 
   return (
-    <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <h1 className="text-2xl font-bold">Movimientos</h1>
-        <div className="flex items-center gap-3">
-          <Select value={filterUser} onValueChange={(v) => setFilterUser(v ?? "todos")}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos</SelectItem>
-              {(usuarios ?? []).map((u) => (
-                <SelectItem key={u.id} value={u.nombre.toLowerCase()}>
-                  {u.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            onClick={() => {
-              const a = document.createElement("a")
-              a.href = "/api/movimientos/export"
-              a.download = "movimientos.csv"
-              a.click()
-            }}
-          >
-            <Download className="w-4 h-4 mr-1.5" />
-            CSV
-          </Button>
-          <Button onClick={openCreate}>Nuevo movimiento</Button>
+    <div className="space-y-5 animate-fade-in">
+      <h1 className="text-xl font-bold text-gray-100">Gastos</h1>
+
+      {loadingMov && !movimientos && <p className="text-gray-400 text-sm">Cargando...</p>}
+
+      {sorted.length === 0 && !loadingMov && (
+        <div className="text-center py-12 text-gray-500">
+          <p>Sin movimientos</p>
         </div>
-      </div>
+      )}
 
-      {loadingMov && <p className="text-muted-foreground">Cargando...</p>}
+      <div className="bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden">
+        {sorted.map((m) => {
+          const isExpanded = expandedId === m.id
+          const isOwn = m.user_id === userId
+          return (
+            <div key={m.id} className="border-b border-white/5 last:border-0">
+              {/* Row principal — tap para expandir */}
+              <div
+                className="flex items-center gap-3 px-4 py-3 cursor-pointer active:bg-white/[0.02]"
+                onClick={() => setExpandedId(isExpanded ? null : m.id)}
+              >
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shrink-0"
+                  style={{
+                    backgroundColor: (userColorMap[m.user_id] || "#8b5cf6") + "20",
+                    color: userColorMap[m.user_id] || "#8b5cf6",
+                  }}
+                >
+                  {(m.usuario || "?")[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-100 truncate">{m.descripcion || m.categoria || "Sin desc"}</p>
+                  <p className="text-xs text-gray-500">{formatDate(m.fecha_gasto)}{m.es_compartido ? " · 50%" : ""}</p>
+                </div>
+                <p className={`text-sm font-semibold tabular-nums shrink-0 ${m.tipo === "ingreso" ? "text-emerald-400" : "text-rose-400"}`}>
+                  {m.tipo === "ingreso" ? "+" : "-"}{formatCOP(m.monto_cop)}
+                </p>
+              </div>
 
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <SortableHead label="Fecha" sortKey="fecha_gasto" sort={sort} onToggle={toggle} />
-                <SortableHead label="Usuario" sortKey="usuario" sort={sort} onToggle={toggle} />
-                <SortableHead label="Categoria" sortKey="categoria" sort={sort} onToggle={toggle} />
-                <SortableHead label="Monto" sortKey="monto_cop" sort={sort} onToggle={toggle} className="text-right" />
-                <SortableHead label="Descripcion" sortKey="descripcion" sort={sort} onToggle={toggle} />
-                <SortableHead label="Medio" sortKey="medio_pago" sort={sort} onToggle={toggle} />
-                <TableHead>Comp.</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sorted.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="text-sm">{formatDate(m.fecha_gasto)}</TableCell>
-                  <TableCell className="text-sm">{m.usuario ?? "—"}</TableCell>
-                  <TableCell>
-                    {m.categoria ? (
-                      <span className="text-sm">{m.categoria}</span>
-                    ) : "—"}
-                  </TableCell>
-                  <TableCell
-                    className={`tabular-nums font-medium text-right text-sm ${
-                      m.tipo === "ingreso" ? "text-primary" : "text-rose-400"
-                    }`}
-                  >
-                    {m.tipo === "ingreso" ? "+" : "-"}
-                    {formatCOP(m.monto_cop)}
-                  </TableCell>
-                  <TableCell className="max-w-[180px] truncate text-sm">
-                    {m.descripcion ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    {m.medio_pago ? (
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        m.medio_pago === "tarjeta_credito"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-gray-100 text-gray-600"
-                      }`}>
-                        {m.medio_pago === "tarjeta_credito" ? "TC" : medioPagoLabel(m.medio_pago)}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
+              {/* Detalle expandido */}
+              {isExpanded && (
+                <div className="px-4 pb-3 space-y-2 animate-fade-in">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-white/[0.03] rounded-xl px-3 py-2">
+                      <span className="text-gray-500">Categoria</span>
+                      <p className="text-gray-200 mt-0.5">{m.categoria || "—"}</p>
+                    </div>
+                    <div className="bg-white/[0.03] rounded-xl px-3 py-2">
+                      <span className="text-gray-500">Medio</span>
+                      <p className="text-gray-200 mt-0.5">{medioPagoLabel(m.medio_pago)}</p>
+                    </div>
+                    {m.usuario && (
+                      <div className="bg-white/[0.03] rounded-xl px-3 py-2">
+                        <span className="text-gray-500">Usuario</span>
+                        <p className="text-gray-200 mt-0.5">{m.usuario}</p>
+                      </div>
                     )}
-                  </TableCell>
-                  <TableCell>
                     {m.es_compartido && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">50%</span>
+                      <div className="bg-white/[0.03] rounded-xl px-3 py-2">
+                        <span className="text-gray-500">Compartido</span>
+                        <p className="text-cyan-400 mt-0.5">50%</p>
+                      </div>
                     )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <button className="text-xs text-gray-500 hover:text-gray-800" onClick={() => openEdit(m)}>
+                  </div>
+                  {isOwn && (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => openEdit(m)}
+                        className="flex-1 py-2 rounded-xl bg-violet-500/10 text-violet-400 text-sm font-medium hover:bg-violet-500/20 transition-colors"
+                      >
                         Editar
                       </button>
-                      <button className="text-xs text-rose-400 hover:text-rose-600" onClick={() => handleDelete(m.id)}>
-                        Borrar
+                      <button
+                        onClick={() => handleDelete(m.id)}
+                        className="flex-1 py-2 rounded-xl bg-rose-500/10 text-rose-400 text-sm font-medium hover:bg-rose-500/20 transition-colors"
+                      >
+                        Eliminar
                       </button>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!loadingMov && sorted.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                    No hay movimientos
-                  </TableCell>
-                </TableRow>
+                  )}
+                </div>
               )}
-            </TableBody>
-          </Table>
-        </div>
+            </div>
+          )
+        })}
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[380px]">
           <DialogHeader>
             <DialogTitle>
               {editing ? "Editar movimiento" : "Nuevo movimiento"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-2">
-            <div className="flex gap-3">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Usuario</label>
-                <select
-                  value={form.user_id}
-                  onChange={(e) => setForm((f) => ({ ...f, user_id: e.target.value }))}
-                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                  required
-                >
-                  <option value="">Seleccionar</option>
-                  {(usuarios ?? []).map((u) => (
-                    <option key={u.id} value={String(u.id)}>{u.nombre}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Categoria</label>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4 mt-2">
+            {/* Monto — prominente con formato COP */}
+            <div>
+              <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Monto</label>
+              <input
+                inputMode="numeric"
+                required
+                value={form.monto_cop ? `$${Number(form.monto_cop).toLocaleString("es-CO")}` : ""}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, "")
+                  setForm((f) => ({ ...f, monto_cop: raw }))
+                }}
+                placeholder="$0"
+                className="w-full px-4 py-3 rounded-xl bg-[#0A0E1A] border border-white/10 text-2xl font-bold text-gray-100 tabular-nums placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all"
+              />
+            </div>
+
+            {/* Categoría + Fecha en grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0">
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Categoria</label>
                 <select
                   value={form.categoria_id}
                   onChange={(e) => setForm((f) => ({ ...f, categoria_id: e.target.value }))}
-                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                  className="w-full px-3 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
                 >
                   <option value="">Sin categoria</option>
                   {(categorias ?? []).map((c) => (
@@ -364,87 +347,100 @@ export default function MovimientosPage() {
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="flex gap-3">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Monto</label>
-                <Input
-                  type="number"
-                  required
-                  value={form.monto_cop}
-                  onChange={(e) => setForm((f) => ({ ...f, monto_cop: e.target.value }))}
-                  placeholder="0"
-                />
-              </div>
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Fecha</label>
-                <Input
+              <div className="min-w-0">
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Fecha</label>
+                <input
                   type="date"
                   value={form.fecha_gasto}
                   onChange={(e) => setForm((f) => ({ ...f, fecha_gasto: e.target.value }))}
+                  className="w-full min-w-0 max-w-full px-2 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50 [color-scheme:dark] overflow-hidden box-border appearance-none"
                 />
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Descripcion</label>
-              <Input
+            {/* Descripción */}
+            <div>
+              <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Descripcion</label>
+              <input
                 value={form.descripcion}
                 onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
-                placeholder="Descripcion"
+                placeholder="Uber, Mercado, Netflix..."
+                className="w-full px-3 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
               />
             </div>
 
-            <div className="flex gap-3">
-              <div className="flex-1 flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Medio de pago</label>
+            {/* Medio de pago + Compartido */}
+            <div className="grid grid-cols-2 gap-3 items-end">
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Medio de pago</label>
                 <select
                   value={form.medio_pago}
                   onChange={(e) => setForm((f) => ({ ...f, medio_pago: e.target.value }))}
-                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                  className="w-full px-3 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
                 >
                   {MEDIOS_PAGO.map((mp) => (
                     <option key={mp.value} value={mp.value}>{mp.label}</option>
                   ))}
                 </select>
               </div>
-              <div className="flex items-end pb-1 gap-2">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.es_compartido}
-                    onChange={(e) => setForm((f) => ({ ...f, es_compartido: e.target.checked }))}
-                    className="w-4 h-4 rounded"
-                  />
-                  Compartido
-                </label>
-              </div>
+              {grupoLleno && (
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, es_compartido: !f.es_compartido }))}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-white/10 bg-[#0A0E1A] cursor-pointer transition-all hover:border-violet-500/30"
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                    form.es_compartido ? "border-violet-500 bg-violet-500" : "border-gray-500"
+                  }`}>
+                    {form.es_compartido && (
+                      <div className="w-2 h-2 rounded-full bg-white" />
+                    )}
+                  </div>
+                  <span className="text-sm text-gray-300">Compartido</span>
+                </button>
+              )}
             </div>
 
+            {/* Cuotas TC */}
             {form.medio_pago === "tarjeta_credito" && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Numero de cuotas</label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.num_cuotas}
-                  onChange={(e) => setForm((f) => ({ ...f, num_cuotas: e.target.value }))}
-                  placeholder="1"
-                />
-                {parseInt(form.num_cuotas) > 1 && (
-                  <p className="text-xs text-amber-600">
-                    Se registrara en Cuotas: {parseInt(form.num_cuotas)} cuotas de {formatCOP(Math.round(Number(form.monto_cop) / parseInt(form.num_cuotas)))}
-                  </p>
-                )}
-              </div>
+              <>
+                <div>
+                  <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Tarjeta</label>
+                  <select
+                    value={form.tarjeta_id}
+                    onChange={(e) => setForm((f) => ({ ...f, tarjeta_id: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                  >
+                    <option value="">Seleccionar tarjeta</option>
+                    {(tarjetas ?? []).filter(t => t.user_id === userId).map(t => (
+                      <option key={t.id} value={String(t.id)}>{t.banco} ****{t.ultimos_4 || "????"}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium uppercase tracking-wide block mb-1.5">Numero de cuotas</label>
+                  <input
+                    inputMode="numeric"
+                    value={form.num_cuotas}
+                    onChange={(e) => setForm((f) => ({ ...f, num_cuotas: e.target.value.replace(/[^0-9]/g, "") }))}
+                    placeholder="1"
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#0A0E1A] border border-white/10 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                  />
+                  {parseInt(form.num_cuotas) > 1 && form.monto_cop && (
+                    <p className="text-xs text-violet-400 mt-1.5">
+                      {parseInt(form.num_cuotas)} cuotas de {formatCOP(Math.round(Number(form.monto_cop) / parseInt(form.num_cuotas)))} /mes
+                    </p>
+                  )}
+                </div>
+              </>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+            {/* Botones */}
+            <div className="flex gap-3 pt-1">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving || !form.user_id || !form.monto_cop}>
+              <Button type="submit" disabled={saving || !form.monto_cop} className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 shadow-lg shadow-violet-500/20">
                 {saving ? "Guardando..." : editing ? "Actualizar" : "Crear"}
               </Button>
             </div>

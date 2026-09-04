@@ -153,19 +153,19 @@ export default function PresupuestosPage() {
   function progressColor(pct: number) {
     if (pct > 100) return "bg-rose-400"
     if (pct >= 80) return "bg-yellow-400"
-    return "bg-primary"
+    return "bg-violet-500"
   }
 
   function progressTextColor(pct: number) {
     if (pct > 100) return "text-rose-400"
     if (pct >= 80) return "text-yellow-500"
-    return "text-primary"
+    return "text-violet-400"
   }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Presupuestos</h1>
+        <h1 className="text-xl font-bold text-gray-100">Presupuestos</h1>
         <div className="flex items-center gap-3">
           <Select value={filterUser} onValueChange={(v) => setFilterUser(v ?? "todos")}>
             <SelectTrigger className="w-36">
@@ -182,11 +182,11 @@ export default function PresupuestosPage() {
           </Select>
 
           <div className="flex items-center gap-1">
-            <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground">
+            <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-white/5 text-gray-400">
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-sm font-medium min-w-[100px] text-center">{monthLabel}</span>
-            <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground">
+            <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-white/5 text-gray-400">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -196,11 +196,11 @@ export default function PresupuestosPage() {
       </div>
 
       {loadingResumen && !resumen && (
-        <p className="text-muted-foreground">Cargando...</p>
+        <p className="text-gray-400">Cargando...</p>
       )}
 
       {resumen && resumen.length === 0 && (
-        <p className="text-muted-foreground text-center py-12">
+        <p className="text-gray-400 text-center py-12">
           No hay presupuestos configurados para {monthLabel}
         </p>
       )}
@@ -214,7 +214,7 @@ export default function PresupuestosPage() {
           return (
             <div
               key={r.categoria_id}
-              className="rounded-xl border border-border bg-card p-5 space-y-3"
+              className="rounded-xl border border-white/5 bg-white/[0.03] p-5 space-y-3"
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-medium">{r.categoria}</h3>
@@ -230,7 +230,7 @@ export default function PresupuestosPage() {
                 )}
               </div>
 
-              <div className="w-full h-2 rounded-full bg-secondary overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${progressColor(pct)}`}
                   style={{ width: `${barWidth}%` }}
@@ -238,7 +238,7 @@ export default function PresupuestosPage() {
               </div>
 
               <div className="flex items-baseline justify-between text-sm">
-                <span className="text-muted-foreground">
+                <span className="text-gray-400">
                   <span className={`font-medium tabular-nums ${progressTextColor(pct)}`}>
                     {formatCOP(r.gastado)}
                   </span>
@@ -250,7 +250,7 @@ export default function PresupuestosPage() {
                 </span>
               </div>
 
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-gray-400">
                 Restante: <span className="tabular-nums">{formatCOP(r.restante)}</span>
               </p>
             </div>

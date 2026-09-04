@@ -43,22 +43,27 @@ LOGIN_PAGE = Path(__file__).parent / "login.html"
 
 
 def _filter_user_id(session: dict, db: Session, user_id: int | None) -> int | None:
-    """Si se pide un user_id específico, validar que el logueado pueda verlo.
-    Si no se pide, retornar None solo si el logueado tiene grupo (ve todo el grupo).
-    Si no tiene grupo, forzar a solo ver su propia data."""
+    """Retorna el user_id a filtrar, validando que sea visible.
+    Retorna None SOLO cuando es modo hogar (debe usarse con _visible_ids)."""
     visible = get_visible_user_ids(session, db)
     if user_id is not None:
         if user_id not in visible:
-            return -1  # ID inexistente = sin resultados
+            return -1
         return user_id
-    # Sin filtro: si tiene grupo ve a todos los del grupo, si no solo él
     if len(visible) == 1:
         return visible[0]
-    return None  # ver todos los del grupo
+    return None  # hogar — el caller DEBE usar _visible_ids para filtrar
 
 
 def _visible_ids(session: dict, db: Session) -> list[int]:
     return get_visible_user_ids(session, db)
+
+
+def _safe_user_filter(session: dict, db: Session, user_id: int | None) -> tuple[int | None, list[int]]:
+    """Retorna (uid, visible_ids). Si uid es None, usar visible_ids para filtrar."""
+    uid = _filter_user_id(session, db, user_id)
+    visible = _visible_ids(session, db)
+    return uid, visible
 
 
 class MovimientoIn(BaseModel):
@@ -247,7 +252,7 @@ def api_register(
         )
         if not grupo:
             raise HTTPException(status_code=400, detail="Codigo de invitacion invalido")
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         if grupo.codigo_expira and grupo.codigo_expira < now:
             raise HTTPException(status_code=400, detail="Codigo de invitacion expirado")
         miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
@@ -315,7 +320,7 @@ def api_generar_invitacion(
 
     codigo = _secrets.token_urlsafe(6)[:8].upper()
     grupo.codigo_invitacion = codigo
-    grupo.codigo_expira = datetime.now(timezone.utc) + timedelta(hours=24)
+    grupo.codigo_expira = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
     return {"codigo": codigo, "expira_en": "24 horas"}
@@ -343,7 +348,7 @@ def api_me(
                 {"id": m.id, "nombre": m.nombre}
                 for m in db.query(User).filter_by(grupo_id=g.id).all()
             ]
-            if g.codigo_invitacion and g.codigo_expira and g.codigo_expira > datetime.now(timezone.utc):
+            if g.codigo_invitacion and g.codigo_expira and g.codigo_expira > datetime.utcnow():
                 codigo_activo = g.codigo_invitacion
 
     return {
@@ -380,7 +385,7 @@ def api_unirse_grupo(
     )
     if not grupo:
         raise HTTPException(status_code=400, detail="Codigo invalido")
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     if grupo.codigo_expira and grupo.codigo_expira < now:
         raise HTTPException(status_code=400, detail="Codigo expirado")
     miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
@@ -437,6 +442,10 @@ def api_listar_movimientos(
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        # "Hogar" mode — filter by group members only
+        visible = _visible_ids(session, db)
+        return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_ids=visible)]
     return [svc.serializar_movimiento(m) for m in svc.listar_movimientos(db, limit=limit, user_id=uid)]
 
 
@@ -448,7 +457,10 @@ def api_exportar_csv(
     mes: str | None = None,
 ) -> StreamingResponse:
     uid = _filter_user_id(session, db, user_id)
-    movs = svc.listar_movimientos(db, limit=10000, user_id=uid)
+    if uid is None:
+        movs = svc.listar_movimientos(db, limit=10000, user_ids=_visible_ids(session, db))
+    else:
+        movs = svc.listar_movimientos(db, limit=10000, user_id=uid)
     if mes:
         movs = [m for m in movs if m.fecha_gasto and str(m.fecha_gasto).startswith(mes)]
 
@@ -511,6 +523,8 @@ def api_actualizar_movimiento(
     movimiento = svc.obtener_movimiento(db, movimiento_id)
     if movimiento is None:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    if movimiento.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes editar tus propios registros")
     try:
         actualizado = svc.actualizar_movimiento(
             db,
@@ -540,6 +554,8 @@ def api_eliminar_movimiento(
     movimiento = svc.obtener_movimiento(db, movimiento_id)
     if movimiento is None:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    if movimiento.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     svc.eliminar_movimiento(db, movimiento)
     return {"status": "ok"}
 
@@ -671,6 +687,8 @@ def api_listar_presupuestos(
     mes: str | None = None,
 ) -> list[dict[str, Any]]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return [svc_ppto.serializar_presupuesto(p) for p in svc_ppto.listar_presupuestos(db, mes=mes, user_ids=_visible_ids(session, db))]
     return [svc_ppto.serializar_presupuesto(p) for p in svc_ppto.listar_presupuestos(db, user_id=uid, mes=mes)]
 
 
@@ -726,6 +744,8 @@ def api_listar_gastos_fijos(
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return [svc_gf.serializar_gasto_fijo(gf) for gf in svc_gf.listar_gastos_fijos(db, user_ids=_visible_ids(session, db))]
     return [svc_gf.serializar_gasto_fijo(gf) for gf in svc_gf.listar_gastos_fijos(db, user_id=uid)]
 
 
@@ -787,6 +807,8 @@ def api_eliminar_gasto_fijo(
     gf = db.query(GastoFijo).filter(GastoFijo.id == gasto_fijo_id).one_or_none()
     if gf is None:
         raise HTTPException(status_code=404, detail="Gasto fijo no encontrado")
+    if gf.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     svc_gf.eliminar_gasto_fijo(db, gf)
     return {"status": "ok"}
 
@@ -802,6 +824,8 @@ def api_flujo_caja(
     user_id: int | None = None,
 ) -> dict:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return svc_intel.flujo_de_caja(db, mes=mes, user_ids=_visible_ids(session, db))
     return svc_intel.flujo_de_caja(db, mes=mes, user_id=uid)
 
 
@@ -812,6 +836,8 @@ def api_alertas(
     user_id: int | None = None,
 ) -> list[dict]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return svc_intel.obtener_alertas(db, user_ids=_visible_ids(session, db))
     return svc_intel.obtener_alertas(db, user_id=uid)
 
 
@@ -822,6 +848,8 @@ def api_salud_financiera(
     user_id: int | None = None,
 ) -> dict:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return svc_intel.salud_financiera(db, user_ids=_visible_ids(session, db))
     return svc_intel.salud_financiera(db, user_id=uid)
 
 
@@ -855,6 +883,8 @@ def api_listar_ingresos(
     user_id: int | None = None,
 ) -> list[dict]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return [svc_ingresos.serializar_ingreso(i) for i in svc_ingresos.listar_ingresos(db, user_ids=_visible_ids(session, db))]
     return [svc_ingresos.serializar_ingreso(i) for i in svc_ingresos.listar_ingresos(db, user_id=uid)]
 
 
@@ -916,6 +946,8 @@ def api_eliminar_ingreso(
     ingreso = svc_ingresos.obtener_ingreso(db, ingreso_id)
     if ingreso is None:
         raise HTTPException(status_code=404, detail="Ingreso no encontrado")
+    if ingreso.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     svc_ingresos.eliminar_ingreso(db, ingreso)
     return {"status": "ok"}
 
@@ -933,6 +965,8 @@ def api_resumen_ingresos(
     # Auto-registrar ingresos fijos del mes consultado
     svc_ingresos.sincronizar_ingresos_fijos(db, mes=mes)
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return svc_ingresos.resumen_ingresos(db, mes=mes, user_ids=_visible_ids(session, db))
     return svc_ingresos.resumen_ingresos(db, mes=mes, user_id=uid)
 
 
@@ -968,7 +1002,10 @@ def api_listar_tarjetas(
     user_id: int | None = None,
 ) -> list[dict]:
     uid = _filter_user_id(session, db, user_id)
-    tarjetas = svc_tarjetas.listar_tarjetas(db, user_id=uid)
+    if uid is None:
+        tarjetas = svc_tarjetas.listar_tarjetas(db, user_ids=_visible_ids(session, db))
+    else:
+        tarjetas = svc_tarjetas.listar_tarjetas(db, user_id=uid)
     return [svc_tarjetas.serializar_tarjeta(t) for t in tarjetas]
 
 
@@ -1032,6 +1069,8 @@ def api_eliminar_tarjeta(
     tarjeta = svc_tarjetas.obtener_tarjeta(db, tarjeta_id)
     if tarjeta is None:
         raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
+    if tarjeta.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     svc_tarjetas.eliminar_tarjeta(db, tarjeta)
     return {"status": "ok"}
 
@@ -1057,6 +1096,8 @@ def api_proyeccion_cuotas_global(
     meses: int = 6,
 ) -> dict:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return svc_tarjetas.proyectar_cuotas_por_mes(db, user_ids=_visible_ids(session, db), meses=meses)
     return svc_tarjetas.proyectar_cuotas_por_mes(db, user_id=uid, meses=meses)
 
 
@@ -1070,6 +1111,8 @@ def api_listar_cuotas(
     user_id: int | None = None,
 ) -> list[dict[str, Any]]:
     uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        return [svc_cuotas.serializar_compra(c) for c in svc_cuotas.listar_compras(db, user_ids=_visible_ids(session, db))]
     return [svc_cuotas.serializar_compra(c) for c in svc_cuotas.listar_compras(db, user_id=uid)]
 
 
@@ -1185,6 +1228,8 @@ def api_eliminar_cuota(
     compra = svc_cuotas.obtener_compra(db, compra_id)
     if compra is None:
         raise HTTPException(status_code=404, detail="Compra no encontrada")
+    if compra.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     svc_cuotas.eliminar_compra(db, compra)
     return {"status": "ok"}
 
@@ -1198,7 +1243,8 @@ def api_balance_compartido(
     db: Session = Depends(get_db),
     mes: str | None = None,
 ) -> dict[str, Any]:
-    return svc_balance.calcular_balance(db, mes=mes)
+    grupo_id = session.get("grupo_id")
+    return svc_balance.calcular_balance(db, mes=mes, grupo_id=grupo_id)
 
 
 # ── Deudas ────────────────────────────────────────────────────────────
@@ -1317,6 +1363,8 @@ def api_eliminar_deuda(
     d = db.query(Deuda).filter(Deuda.id == deuda_id).one_or_none()
     if d is None:
         raise HTTPException(status_code=404, detail="Deuda no encontrada")
+    if d.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     db.delete(d)
     db.commit()
     return {"status": "ok"}

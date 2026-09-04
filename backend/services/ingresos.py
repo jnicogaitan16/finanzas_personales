@@ -48,11 +48,14 @@ def listar_ingresos(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     solo_activos: bool = True,
 ) -> list[IngresoRecurrente]:
     q = db.query(IngresoRecurrente).options(joinedload(IngresoRecurrente.user))
     if user_id:
         q = q.filter(IngresoRecurrente.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(IngresoRecurrente.user_id.in_(user_ids))
     if solo_activos:
         q = q.filter(IngresoRecurrente.activo == True)  # noqa: E712
     return q.order_by(IngresoRecurrente.nombre).all()
@@ -140,13 +143,14 @@ def resumen_ingresos(
     *,
     mes: str,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
 ) -> dict:
     """Resumen de ingresos esperados vs recibidos para un mes.
 
     Args:
         mes: formato "YYYY-MM"
     """
-    ingresos_cfg = listar_ingresos(db, user_id=user_id, solo_activos=True)
+    ingresos_cfg = listar_ingresos(db, user_id=user_id, user_ids=user_ids, solo_activos=True)
 
     esperado_fijo = 0
     esperado_variable = 0
@@ -168,6 +172,8 @@ def resumen_ingresos(
     )
     if user_id:
         q = q.filter(Movimiento.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(Movimiento.user_id.in_(user_ids))
 
     recibido = 0
     from db.models import Categoria

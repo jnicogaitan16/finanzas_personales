@@ -47,6 +47,7 @@ def listar_gastos_fijos(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     solo_activos: bool = True,
 ) -> list[GastoFijo]:
     q = db.query(GastoFijo).options(
@@ -54,6 +55,8 @@ def listar_gastos_fijos(
     )
     if user_id:
         q = q.filter(GastoFijo.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(GastoFijo.user_id.in_(user_ids))
     if solo_activos:
         q = q.filter(GastoFijo.activo == True)  # noqa: E712
     return q.order_by(GastoFijo.id).all()

@@ -5,8 +5,10 @@ import { toast } from "sonner"
 import { Plus, Pencil, Trash2, Calendar, Repeat, ChevronLeft, ChevronRight, Gift } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useAuth } from "@/hooks/use-auth"
+import { useUserFilter } from "@/hooks/use-user-filter"
 import { formatCOP, isInMonth } from "@/lib/format"
-import type { IngresoRecurrente, Usuario, Movimiento, Categoria } from "@/lib/types"
+import type { IngresoRecurrente, Movimiento, Categoria } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -19,7 +21,6 @@ import {
 // ── Form states ──
 
 interface FijoFormState {
-  user_id: string
   nombre: string
   frecuencia: string
   monto_cop: string
@@ -28,19 +29,18 @@ interface FijoFormState {
 }
 
 const emptyFijoForm: FijoFormState = {
-  user_id: "", nombre: "", frecuencia: "mensual",
+  nombre: "", frecuencia: "mensual",
   monto_cop: "", dia_pago_1: "", dia_pago_2: "",
 }
 
 interface IngresoFormState {
-  user_id: string
   monto_cop: string
   descripcion: string
   fecha: string
 }
 
 const emptyIngresoForm: IngresoFormState = {
-  user_id: "", monto_cop: "", descripcion: "", fecha: "",
+  monto_cop: "", descripcion: "", fecha: "",
 }
 
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
@@ -72,12 +72,12 @@ export default function IngresosPage() {
     setSelectedMonth(m => m.month === 11 ? { year: m.year + 1, month: 0 } : { ...m, month: m.month + 1 })
   }
 
+  const { userId } = useAuth()
+  const { selectedUser } = useUserFilter()
+
   // Data
   const fetchIngresos = useCallback(() => api.get<IngresoRecurrente[]>("/api/ingresos"), [])
   const { data: ingresos, refetch: refetchIngresos } = usePolling(fetchIngresos, 5000)
-
-  const fetchUsuarios = useCallback(() => api.get<Usuario[]>("/api/usuarios"), [])
-  const { data: usuarios } = usePolling(fetchUsuarios, 30000)
 
   const fetchMovimientos = useCallback(() => api.get<Movimiento[]>("/api/movimientos?limit=500"), [])
   const { data: movimientos, refetch: refetchMov } = usePolling(fetchMovimientos, 5000)
@@ -85,18 +85,25 @@ export default function IngresosPage() {
   const fetchCategorias = useCallback(() => api.get<Categoria[]>("/api/categorias"), [])
   const { data: categorias } = usePolling(fetchCategorias, 30000)
 
-  // Filtrar movimientos de ingreso del mes
+  // Filtrar movimientos de ingreso del mes respetando filtro global
   const ingresosMes = useMemo(() => {
     if (!movimientos) return []
-    return movimientos.filter(m =>
-      m.tipo === "ingreso" && isInMonth(m.fecha_gasto, monthKey)
-    )
-  }, [movimientos, monthKey])
+    return movimientos.filter(m => {
+      if (!m.tipo || m.tipo !== "ingreso") return false
+      if (!isInMonth(m.fecha_gasto, monthKey)) return false
+      if (selectedUser !== "todos" && String(m.user_id) !== selectedUser) return false
+      return true
+    })
+  }, [movimientos, monthKey, selectedUser])
 
   const totalMes = ingresosMes.reduce((s, m) => s + m.monto_cop, 0)
 
-  // Ingresos fijos del usuario
-  const ingresosFijos = (ingresos ?? []).filter(i => i.tipo === "fijo")
+  // Ingresos fijos filtrados por usuario
+  const ingresosFijos = (ingresos ?? []).filter(i => {
+    if (i.tipo !== "fijo") return false
+    if (selectedUser !== "todos" && String(i.user_id) !== selectedUser) return false
+    return true
+  })
 
   const totalFijoMensual = ingresosFijos.reduce((s, i) => {
     if (i.frecuencia === "quincenal") return s + i.monto_cop * 2
@@ -116,7 +123,6 @@ export default function IngresosPage() {
   function openEditFijo(i: IngresoRecurrente) {
     setEditingFijo(i)
     setFijoForm({
-      user_id: String(i.user_id),
       nombre: i.nombre,
       frecuencia: i.frecuencia,
       monto_cop: String(i.monto_cop),
@@ -131,7 +137,7 @@ export default function IngresosPage() {
     setSavingFijo(true)
     try {
       const base = {
-        user_id: Number(fijoForm.user_id),
+        user_id: userId,
         nombre: fijoForm.nombre,
         tipo: "fijo",
         frecuencia: fijoForm.frecuencia,
@@ -182,7 +188,7 @@ export default function IngresosPage() {
     try {
       const catIngreso = (categorias ?? []).find(c => c.tipo === "ingreso")
       await api.post("/api/movimientos", {
-        user_id: Number(ingresoForm.user_id),
+        user_id: userId,
         monto_cop: Number(ingresoForm.monto_cop),
         descripcion: ingresoForm.descripcion || "Ingreso",
         fecha_gasto: ingresoForm.fecha || null,
@@ -315,13 +321,6 @@ export default function IngresosPage() {
           </DialogHeader>
           <form onSubmit={handleSubmitFijo} className="grid gap-4 mt-2">
             <label className="text-sm">
-              Usuario
-              <select value={fijoForm.user_id} onChange={e => setFijoForm(f => ({ ...f, user_id: e.target.value }))} required className="w-full mt-1 px-3 py-2 rounded-lg border text-sm">
-                <option value="">Seleccionar</option>
-                {(usuarios ?? []).map(u => <option key={u.id} value={String(u.id)}>{u.nombre}</option>)}
-              </select>
-            </label>
-            <label className="text-sm">
               Nombre
               <Input value={fijoForm.nombre} onChange={e => setFijoForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Salario, Arriendo recibido..." required className="mt-1" />
             </label>
@@ -368,13 +367,6 @@ export default function IngresosPage() {
             <DialogTitle>Registrar ingreso</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmitIngreso} className="grid gap-4 mt-2">
-            <label className="text-sm">
-              Usuario
-              <select value={ingresoForm.user_id} onChange={e => setIngresoForm(f => ({ ...f, user_id: e.target.value }))} required className="w-full mt-1 px-3 py-2 rounded-lg border text-sm">
-                <option value="">Seleccionar</option>
-                {(usuarios ?? []).map(u => <option key={u.id} value={String(u.id)}>{u.nombre}</option>)}
-              </select>
-            </label>
             <label className="text-sm">
               Monto (COP)
               <Input type="number" value={ingresoForm.monto_cop} onChange={e => setIngresoForm(f => ({ ...f, monto_cop: e.target.value }))} required placeholder="1000000" className="mt-1" />

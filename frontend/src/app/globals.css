@@ -48,40 +48,41 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ── Tema Púrpura/Oscuro (Banking App) ── */
 :root {
-  --background: 228 14% 7%;
-  --foreground: 222 33% 95%;
-  --card: 220 16% 12%;
-  --card-foreground: 222 33% 95%;
-  --popover: 220 16% 12%;
-  --popover-foreground: 222 33% 95%;
-  --primary: 160 77% 67%;
-  --primary-foreground: 160 80% 10%;
-  --secondary: 218 20% 20%;
-  --secondary-foreground: 222 33% 95%;
-  --muted: 218 20% 20%;
-  --muted-foreground: 215 16% 64%;
-  --accent: 218 20% 20%;
-  --accent-foreground: 222 33% 95%;
-  --destructive: 0 94% 71%;
+  --background: 230 45% 6%;         /* #0A0E1A */
+  --foreground: 210 40% 96%;        /* #F1F5F9 */
+  --card: 232 40% 14%;              /* #141832 */
+  --card-foreground: 210 40% 96%;
+  --popover: 232 40% 14%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 263 70% 58%;           /* #7C3AED violeta */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 233 35% 18%;        /* #1C2145 */
+  --secondary-foreground: 210 40% 96%;
+  --muted: 233 35% 18%;
+  --muted-foreground: 215 20% 65%; /* #94A3B8 */
+  --accent: 270 60% 62%;           /* #A855F7 púrpura claro */
+  --accent-foreground: 0 0% 100%;
+  --destructive: 350 80% 72%;      /* #FB7185 */
   --destructive-foreground: 0 0% 100%;
-  --border: 218 20% 20%;
-  --input: 218 20% 20%;
-  --ring: 160 77% 67%;
+  --border: 233 30% 20%;
+  --input: 233 30% 20%;
+  --ring: 263 70% 58%;
   --radius: 1rem;
-  --chart-1: 160 77% 67%;
-  --chart-2: 218 60% 60%;
-  --chart-3: 280 60% 65%;
-  --chart-4: 30 80% 60%;
-  --chart-5: 350 70% 65%;
-  --sidebar: 220 16% 12%;
-  --sidebar-foreground: 222 33% 95%;
-  --sidebar-primary: 160 77% 67%;
-  --sidebar-primary-foreground: 160 80% 10%;
-  --sidebar-accent: 218 20% 20%;
-  --sidebar-accent-foreground: 222 33% 95%;
-  --sidebar-border: 218 20% 20%;
-  --sidebar-ring: 160 77% 67%;
+  --chart-1: 263 70% 58%;          /* violeta */
+  --chart-2: 187 80% 42%;          /* cyan #06B6D4 */
+  --chart-3: 160 64% 55%;          /* emerald */
+  --chart-4: 350 80% 72%;          /* rose */
+  --chart-5: 45 90% 56%;           /* amber */
+  --sidebar: 232 40% 10%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-primary: 263 70% 58%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 233 35% 18%;
+  --sidebar-accent-foreground: 210 40% 96%;
+  --sidebar-border: 233 30% 20%;
+  --sidebar-ring: 263 70% 58%;
 }
 
 @layer base {
@@ -95,6 +96,16 @@
     @apply font-sans;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* Fix date input overflow on mobile */
+input[type="date"] {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
 }
 
 /* Animations */
@@ -131,52 +142,53 @@
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Fix: fondo claro en portals de Select/Dialog */
+/* ── Portals: Select/Dialog con tema oscuro ── */
 [data-slot="select-content"] {
-  background-color: hsl(220 10% 96%) !important;
-  border: 1px solid hsl(220 10% 85%);
-  color: hsl(220 16% 12%) !important;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  background-color: #1C2145 !important;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #F1F5F9 !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 
 [data-slot="select-item"] {
-  color: hsl(220 16% 15%) !important;
+  color: #F1F5F9 !important;
 }
 
 [data-slot="select-item"]:hover,
 [data-slot="select-item"]:focus,
 [data-slot="select-item"][data-highlighted] {
-  background-color: hsl(220 10% 88%) !important;
-  color: hsl(220 16% 10%) !important;
+  background-color: rgba(124,58,237,0.2) !important;
+  color: #F1F5F9 !important;
 }
 
 [data-slot="select-scroll-up-button"],
 [data-slot="select-scroll-down-button"] {
-  background-color: hsl(220 10% 96%) !important;
+  background-color: #1C2145 !important;
 }
 
 [data-slot="dialog-overlay"] {
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: rgba(0, 0, 0, 0.7);
 }
 
 [data-slot="dialog-content"] {
-  background-color: hsl(0 0% 100%) !important;
-  border: 1px solid hsl(220 10% 85%);
-  color: hsl(220 16% 12%) !important;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  background-color: #141832 !important;
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #F1F5F9 !important;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
 }
 
 [data-slot="dialog-content"] label,
 [data-slot="dialog-content"] h2 {
-  color: hsl(220 16% 15%) !important;
+  color: #F1F5F9 !important;
 }
 
-[data-slot="dialog-content"] input {
-  background-color: hsl(0 0% 100%) !important;
-  border-color: hsl(220 10% 80%) !important;
-  color: hsl(220 16% 12%) !important;
+[data-slot="dialog-content"] input,
+[data-slot="dialog-content"] select {
+  background-color: #0A0E1A !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  color: #F1F5F9 !important;
 }
 
 [data-slot="dialog-content"] input::placeholder {
-  color: hsl(220 10% 60%) !important;
+  color: #94A3B8 !important;
 }

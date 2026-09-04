@@ -12,15 +12,15 @@ interface SaludFinanciera {
 }
 
 const NIVEL_COLORS: Record<string, string> = {
-  excelente: "text-emerald-400",
-  bueno: "text-blue-400",
+  excelente: "text-violet-400",
+  bueno: "text-cyan-400",
   regular: "text-amber-400",
   critico: "text-rose-400",
 }
 
 const RING_COLORS: Record<string, string> = {
-  excelente: "#34d399",
-  bueno: "#60a5fa",
+  excelente: "#8b5cf6",
+  bueno: "#06b6d4",
   regular: "#fbbf24",
   critico: "#fb7185",
 }

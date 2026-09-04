@@ -47,11 +47,14 @@ def listar_tarjetas(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     solo_activas: bool = True,
 ) -> list[TarjetaCredito]:
     q = db.query(TarjetaCredito).options(joinedload(TarjetaCredito.user))
     if user_id:
         q = q.filter(TarjetaCredito.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(TarjetaCredito.user_id.in_(user_ids))
     if solo_activas:
         q = q.filter(TarjetaCredito.activa == True)  # noqa: E712
     return q.order_by(TarjetaCredito.banco, TarjetaCredito.nombre).all()
@@ -161,6 +164,7 @@ def proyectar_cuotas_por_mes(
     *,
     tarjeta_id: int | None = None,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     meses: int = 6,
 ) -> dict[str, dict]:
     """Proyecta cuotas pendientes agrupadas por mes para los próximos N meses.
@@ -179,6 +183,8 @@ def proyectar_cuotas_por_mes(
         q = q.filter(CompraCuotas.tarjeta_id == tarjeta_id)
     if user_id:
         q = q.filter(CompraCuotas.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(CompraCuotas.user_id.in_(user_ids))
     compras = q.all()
 
     from tiempo import ahora_bogota

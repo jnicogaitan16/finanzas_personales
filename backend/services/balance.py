@@ -7,7 +7,7 @@ from db.models import CompraCuotas, Deuda, GastoFijo, Movimiento, User
 from parser.mensajes import format_cop
 
 
-def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
+def calcular_balance(db: Session, *, mes: str | None = None, grupo_id: int | None = None) -> dict:
     """Calcula el balance de gastos compartidos entre los 2 usuarios.
 
     Fuentes:
@@ -31,15 +31,23 @@ def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
         "quien_debe": "Day debe a Nico $129.535",
     }
     """
-    users = db.query(User).order_by(User.id).all()
+    q_users = db.query(User).order_by(User.id)
+    if grupo_id:
+        q_users = q_users.filter(User.grupo_id == grupo_id)
+    users = q_users.all()
     if len(users) < 2:
         return {"detalles": [], "balance_neto": 0, "quien_debe": ""}
 
     user_map = {u.id: u.nombre for u in users}
+    user_ids = list(user_map.keys())
     detalles = []
 
-    # 1. Gastos fijos compartidos
-    fijos = db.query(GastoFijo).filter(GastoFijo.es_compartido == True, GastoFijo.activo == True).all()  # noqa: E712
+    # 1. Gastos fijos compartidos (solo del grupo)
+    fijos = db.query(GastoFijo).filter(
+        GastoFijo.es_compartido == True,  # noqa: E712
+        GastoFijo.activo == True,  # noqa: E712
+        GastoFijo.user_id.in_(user_ids),
+    ).all()
     for gf in fijos:
         pct = (gf.porcentaje_compartido or 50) / 100
         mitad = int(gf.monto_cop * pct)
@@ -58,11 +66,12 @@ def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
                 "porcentaje": gf.porcentaje_compartido or 50,
             })
 
-    # 2a. Movimientos compartidos SIN cuotas (compras de 1 cuota o gastos normales)
+    # 2a. Movimientos compartidos SIN cuotas (solo del grupo)
     q_simple = db.query(Movimiento).filter(
         Movimiento.es_compartido == True,  # noqa: E712
         Movimiento.eliminado_en.is_(None),
         Movimiento.compra_cuotas_id.is_(None),
+        Movimiento.user_id.in_(user_ids),
     )
     if mes:
         q_simple = q_simple.filter(func.to_char(Movimiento.fecha_gasto, 'YYYY-MM') == mes)
@@ -96,6 +105,7 @@ def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
             Movimiento.eliminado_en.is_(None),
             CompraCuotas.eliminado_en.is_(None),
             CompraCuotas.liquidada == False,  # noqa: E712
+            CompraCuotas.user_id.in_(user_ids),
         )
         .all()
     )
@@ -158,6 +168,7 @@ def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
         Movimiento.es_compartido == True,  # noqa: E712
         Movimiento.eliminado_en.is_(None),
         Movimiento.compra_cuotas_id.isnot(None),
+        Movimiento.user_id.in_(user_ids),
     )
     if mes:
         q_tc1 = q_tc1.filter(func.to_char(Movimiento.fecha_gasto, 'YYYY-MM') == mes)
@@ -186,7 +197,7 @@ def calcular_balance(db: Session, *, mes: str | None = None) -> dict:
             })
 
     # 3. Deudas personales activas
-    deudas = db.query(Deuda).filter(Deuda.activa == True).all()  # noqa: E712
+    deudas = db.query(Deuda).filter(Deuda.activa == True, Deuda.user_id.in_(user_ids)).all()  # noqa: E712
     for d in deudas:
         # For personal debts, the user_id is who OWES, acreedor is who they owe TO
         # But in our context, we'll treat it as: user_id registered the debt,

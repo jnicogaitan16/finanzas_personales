@@ -41,19 +41,19 @@ export function KpiCards({ gastoMes, ingresoMes, gastoMesAnterior }: KpiProps) {
       label: "Balance",
       value: formatCOP(balance),
       icon: Wallet,
-      gradient: balance >= 0 ? "from-blue-500/20 to-blue-600/5" : "from-rose-500/20 to-rose-600/5",
-      iconBg: balance >= 0 ? "bg-blue-500/20" : "bg-rose-500/20",
-      iconColor: balance >= 0 ? "text-blue-400" : "text-rose-400",
-      valueColor: balance >= 0 ? "text-blue-400" : "text-rose-400",
+      gradient: balance >= 0 ? "from-violet-500/20 to-violet-600/5" : "from-rose-500/20 to-rose-600/5",
+      iconBg: balance >= 0 ? "bg-violet-500/20" : "bg-rose-500/20",
+      iconColor: balance >= 0 ? "text-violet-400" : "text-rose-400",
+      valueColor: balance >= 0 ? "text-violet-400" : "text-rose-400",
     },
     {
       label: "vs Mes anterior",
       value: `${cambio > 0 ? "+" : ""}${cambio}%`,
       icon: BarChart3,
-      gradient: cambio <= 0 ? "from-violet-500/20 to-violet-600/5" : "from-orange-500/20 to-orange-600/5",
-      iconBg: cambio <= 0 ? "bg-violet-500/20" : "bg-orange-500/20",
-      iconColor: cambio <= 0 ? "text-violet-400" : "text-orange-400",
-      valueColor: cambio <= 0 ? "text-violet-400" : "text-orange-400",
+      gradient: cambio <= 0 ? "from-cyan-500/20 to-cyan-600/5" : "from-amber-500/20 to-amber-600/5",
+      iconBg: cambio <= 0 ? "bg-cyan-500/20" : "bg-amber-500/20",
+      iconColor: cambio <= 0 ? "text-cyan-400" : "text-amber-400",
+      valueColor: cambio <= 0 ? "text-cyan-400" : "text-amber-400",
     },
   ]
 
@@ -66,16 +66,12 @@ export function KpiCards({ gastoMes, ingresoMes, gastoMesAnterior }: KpiProps) {
           className={`bg-gradient-to-br ${card.gradient} border border-white/5 rounded-2xl p-4 backdrop-blur-sm ${card.href ? "cursor-pointer active:scale-[0.97] transition-transform" : ""}`}
         >
           <div className="flex items-center justify-between mb-3">
-            <span className="text-gray-400 text-xs font-medium uppercase tracking-wide">
-              {card.label}
-            </span>
+            <span className="text-gray-400 text-xs font-medium uppercase tracking-wide">{card.label}</span>
             <div className={`w-8 h-8 rounded-xl ${card.iconBg} flex items-center justify-center`}>
               <card.icon className={`w-4 h-4 ${card.iconColor}`} />
             </div>
           </div>
-          <div className={`text-xl font-bold tabular-nums ${card.valueColor}`}>
-            {card.value}
-          </div>
+          <div className={`text-xl font-bold tabular-nums ${card.valueColor}`}>{card.value}</div>
         </div>
       ))}
     </div>

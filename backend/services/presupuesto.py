@@ -43,11 +43,14 @@ def listar_presupuestos(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     mes: str | None = None,
 ) -> list[Presupuesto]:
     q = db.query(Presupuesto)
     if user_id:
         q = q.filter(Presupuesto.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(Presupuesto.user_id.in_(user_ids))
     if mes:
         q = q.filter(Presupuesto.mes_vigente == mes)
     return q.order_by(Presupuesto.id).all()

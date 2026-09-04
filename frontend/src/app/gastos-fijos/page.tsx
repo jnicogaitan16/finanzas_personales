@@ -152,7 +152,7 @@ export default function GastosFijosPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Gastos Fijos</h1>
+        <h1 className="text-xl font-bold text-gray-100">Gastos Fijos</h1>
         <div className="flex items-center gap-3">
           <Select value={filterUser} onValueChange={(v) => setFilterUser(v ?? "todos")}>
             <SelectTrigger className="w-36">
@@ -172,10 +172,10 @@ export default function GastosFijosPage() {
       </div>
 
       {loadingGF && !gastosFijos && (
-        <p className="text-muted-foreground">Cargando...</p>
+        <p className="text-gray-400">Cargando...</p>
       )}
 
-      <div className="rounded-xl border border-border overflow-hidden">
+      <div className="rounded-xl border border-white/5 overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -201,11 +201,11 @@ export default function GastosFijosPage() {
                   </TableCell>
                   <TableCell className="text-center">
                     {g.es_compartido ? (
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-primary/20 text-primary">
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-violet-500/20 text-violet-400">
                         Si
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-secondary text-muted-foreground">
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-white/10 text-gray-400">
                         No
                       </span>
                     )}
@@ -242,7 +242,7 @@ export default function GastosFijosPage() {
               ))}
               {!loadingGF && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={8} className="text-center text-gray-400 py-8">
                     No hay gastos fijos
                   </TableCell>
                 </TableRow>
@@ -327,7 +327,7 @@ export default function GastosFijosPage() {
                 id="es_compartido"
                 checked={form.es_compartido}
                 onChange={(e) => setForm((f) => ({ ...f, es_compartido: e.target.checked }))}
-                className="h-4 w-4 rounded border-border accent-primary"
+                className="h-4 w-4 rounded border-white/5 accent-primary"
               />
               <label htmlFor="es_compartido" className="text-sm font-medium">
                 Compartido

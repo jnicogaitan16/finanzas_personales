@@ -59,7 +59,19 @@ export default function CuentaPage() {
     setGenerando(true)
     try {
       const res = await api.post<{ codigo: string }>("/api/grupo", {})
-      toast.success(`Codigo generado: ${res.codigo}`)
+      try {
+        const ta = document.createElement("textarea")
+        ta.value = res.codigo
+        ta.style.position = "fixed"
+        ta.style.opacity = "0"
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand("copy")
+        document.body.removeChild(ta)
+        toast.success(`Codigo copiado: ${res.codigo}`)
+      } catch {
+        toast.success(`Codigo: ${res.codigo}`)
+      }
       refetch()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error")
@@ -68,10 +80,23 @@ export default function CuentaPage() {
     }
   }
 
-  async function handleCopiarCodigo() {
-    if (me?.codigo_invitacion_activo) {
-      await navigator.clipboard.writeText(me.codigo_invitacion_activo)
+  function handleCopiarCodigo() {
+    const texto = me?.codigo_invitacion_activo
+    if (!texto) return
+    // Fallback para HTTP (no seguro) donde navigator.clipboard no funciona
+    try {
+      const ta = document.createElement("textarea")
+      ta.value = texto
+      ta.style.position = "fixed"
+      ta.style.opacity = "0"
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand("copy")
+      document.body.removeChild(ta)
       toast.success("Codigo copiado")
+    } catch {
+      // Si falla, al menos mostrar el código
+      toast.info(`Codigo: ${texto}`)
     }
   }
 

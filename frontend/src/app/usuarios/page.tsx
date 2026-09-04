@@ -95,13 +95,13 @@ export default function UsuariosPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Usuarios</h1>
+        <h1 className="text-xl font-bold text-gray-100">Usuarios</h1>
         <Button onClick={openCreate}>Nuevo usuario</Button>
       </div>
 
-      {loading && <p className="text-muted-foreground">Cargando...</p>}
+      {loading && <p className="text-gray-400">Cargando...</p>}
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl border border-white/5 bg-white/[0.03] overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -117,7 +117,7 @@ export default function UsuariosPage() {
                 <TableRow key={u.id}>
                   <TableCell>{u.id}</TableCell>
                   <TableCell className="font-medium">{u.nombre}</TableCell>
-                  <TableCell className="font-mono text-muted-foreground">
+                  <TableCell className="font-mono text-gray-400">
                     {u.numero_whatsapp}
                   </TableCell>
                   <TableCell>
@@ -139,7 +139,7 @@ export default function UsuariosPage() {
               ))}
               {!loading && (usuarios ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={4} className="text-center text-gray-400 py-8">
                     No hay usuarios
                   </TableCell>
                 </TableRow>

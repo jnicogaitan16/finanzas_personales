@@ -27,6 +27,7 @@ def flujo_de_caja(
     *,
     mes: str | None = None,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
 ) -> dict:
     """Proyección de flujo de caja mensual.
 
@@ -42,6 +43,8 @@ def flujo_de_caja(
     q_ing = db.query(IngresoRecurrente).filter(IngresoRecurrente.activo == True)  # noqa: E712
     if user_id:
         q_ing = q_ing.filter(IngresoRecurrente.user_id == user_id)
+    elif user_ids is not None:
+        q_ing = q_ing.filter(IngresoRecurrente.user_id.in_(user_ids))
     ingresos_cfg = q_ing.all()
     ingresos_esperados = sum(ingreso_esperado_mes(i) for i in ingresos_cfg)
 
@@ -49,6 +52,8 @@ def flujo_de_caja(
     q_gf = db.query(GastoFijo).filter(GastoFijo.activo == True)  # noqa: E712
     if user_id:
         q_gf = q_gf.filter(GastoFijo.user_id == user_id)
+    elif user_ids is not None:
+        q_gf = q_gf.filter(GastoFijo.user_id.in_(user_ids))
     gastos_fijos = sum(gf.monto_cop for gf in q_gf.all())
 
     # 3. Cuotas tarjetas del mes
@@ -58,10 +63,12 @@ def flujo_de_caja(
     )
     if user_id:
         q_cuotas = q_cuotas.filter(CompraCuotas.user_id == user_id)
+    elif user_ids is not None:
+        q_cuotas = q_cuotas.filter(CompraCuotas.user_id.in_(user_ids))
     cuotas_mes = sum(c.valor_cuota_cop for c in q_cuotas.all())
 
     # 4. Gasto flexible = promedio últimos 3 meses de gastos no fijos
-    gasto_flex = _promedio_gasto_flexible(db, user_id=user_id, meses=3)
+    gasto_flex = _promedio_gasto_flexible(db, user_id=user_id, user_ids=user_ids, meses=3)
 
     disponible = ingresos_esperados - gastos_fijos - cuotas_mes - gasto_flex
 
@@ -79,15 +86,21 @@ def _promedio_gasto_flexible(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     meses: int = 3,
 ) -> int:
     """Promedio mensual de gastos no fijos de los últimos N meses."""
     hoy = ahora_bogota().date()
 
-    # Categorías fijas
+    # Categorías fijas (scoped to same users)
+    q_gf = db.query(GastoFijo).filter(GastoFijo.activo == True)  # noqa: E712
+    if user_id:
+        q_gf = q_gf.filter(GastoFijo.user_id == user_id)
+    elif user_ids is not None:
+        q_gf = q_gf.filter(GastoFijo.user_id.in_(user_ids))
     cats_fijos = {
         gf.categoria_id
-        for gf in db.query(GastoFijo).filter(GastoFijo.activo == True).all()  # noqa: E712
+        for gf in q_gf.all()
         if gf.categoria_id
     }
 
@@ -97,6 +110,8 @@ def _promedio_gasto_flexible(
     )
     if user_id:
         q = q.filter(Movimiento.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(Movimiento.user_id.in_(user_ids))
 
     total = 0
     meses_con_datos = set()
@@ -129,6 +144,7 @@ def obtener_alertas(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
 ) -> list[dict]:
     """Genera alertas activas para el usuario."""
     alertas: list[dict] = []
@@ -139,6 +155,8 @@ def obtener_alertas(
     q_ppto = db.query(Presupuesto).filter(Presupuesto.mes_vigente == mes_actual)
     if user_id:
         q_ppto = q_ppto.filter(Presupuesto.user_id == user_id)
+    elif user_ids is not None:
+        q_ppto = q_ppto.filter(Presupuesto.user_id.in_(user_ids))
 
     for p in q_ppto.all():
         gastado = _gastado_categoria_mes(db, p.user_id, p.categoria_id, mes_actual)
@@ -159,6 +177,8 @@ def obtener_alertas(
     q_tj = db.query(TarjetaCredito).filter(TarjetaCredito.activa == True)  # noqa: E712
     if user_id:
         q_tj = q_tj.filter(TarjetaCredito.user_id == user_id)
+    elif user_ids is not None:
+        q_tj = q_tj.filter(TarjetaCredito.user_id.in_(user_ids))
 
     for t in q_tj.all():
         # Calcular próximo pago
@@ -197,6 +217,8 @@ def obtener_alertas(
     q_deudas = db.query(Deuda).filter(Deuda.activa == True)  # noqa: E712
     if user_id:
         q_deudas = q_deudas.filter(Deuda.user_id == user_id)
+    elif user_ids is not None:
+        q_deudas = q_deudas.filter(Deuda.user_id.in_(user_ids))
 
     for d in q_deudas.all():
         if d.fecha_limite and d.fecha_limite <= hoy:
@@ -234,6 +256,7 @@ def salud_financiera(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
 ) -> dict:
     """Score 0-100 de salud financiera.
 
@@ -252,16 +275,20 @@ def salud_financiera(
     q_ing = db.query(IngresoRecurrente).filter(IngresoRecurrente.activo == True)  # noqa: E712
     if user_id:
         q_ing = q_ing.filter(IngresoRecurrente.user_id == user_id)
+    elif user_ids is not None:
+        q_ing = q_ing.filter(IngresoRecurrente.user_id.in_(user_ids))
     ingreso_mensual = sum(ingreso_esperado_mes(i) for i in q_ing.all())
 
     # Gastos fijos
     q_gf = db.query(GastoFijo).filter(GastoFijo.activo == True)  # noqa: E712
     if user_id:
         q_gf = q_gf.filter(GastoFijo.user_id == user_id)
+    elif user_ids is not None:
+        q_gf = q_gf.filter(GastoFijo.user_id.in_(user_ids))
     gastos_fijos = sum(gf.monto_cop for gf in q_gf.all())
 
     # Gasto total mes actual
-    gasto_mes = _gasto_total_mes(db, mes_actual, user_id)
+    gasto_mes = _gasto_total_mes(db, mes_actual, user_id, user_ids=user_ids)
 
     # 1. Gastos < 90% ingresos
     if ingreso_mensual > 0:
@@ -293,11 +320,15 @@ def salud_financiera(
     )
     if user_id:
         q_deuda = q_deuda.filter(CompraCuotas.user_id == user_id)
+    elif user_ids is not None:
+        q_deuda = q_deuda.filter(CompraCuotas.user_id.in_(user_ids))
     deuda_total = sum(c.saldo_pendiente_cop for c in q_deuda.all())
 
     q_deudas_ext = db.query(Deuda).filter(Deuda.activa == True)  # noqa: E712
     if user_id:
         q_deudas_ext = q_deudas_ext.filter(Deuda.user_id == user_id)
+    elif user_ids is not None:
+        q_deudas_ext = q_deudas_ext.filter(Deuda.user_id.in_(user_ids))
     deuda_total += sum(d.saldo_cop for d in q_deudas_ext.all())
 
     ingreso_anual = ingreso_mensual * 12
@@ -319,6 +350,8 @@ def salud_financiera(
     q_ppto = db.query(Presupuesto).filter(Presupuesto.mes_vigente == mes_actual)
     if user_id:
         q_ppto = q_ppto.filter(Presupuesto.user_id == user_id)
+    elif user_ids is not None:
+        q_ppto = q_ppto.filter(Presupuesto.user_id.in_(user_ids))
     presupuestos = q_ppto.all()
 
     if presupuestos:
@@ -344,13 +377,21 @@ def salud_financiera(
     }
 
 
-def _gasto_total_mes(db: Session, mes: str, user_id: int | None) -> int:
+def _gasto_total_mes(
+    db: Session,
+    mes: str,
+    user_id: int | None,
+    *,
+    user_ids: list[int] | None = None,
+) -> int:
     q = db.query(Movimiento).filter(
         Movimiento.eliminado_en.is_(None),
         Movimiento.fecha_gasto.isnot(None),
     )
     if user_id:
         q = q.filter(Movimiento.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(Movimiento.user_id.in_(user_ids))
 
     total = 0
     for m in q.all():

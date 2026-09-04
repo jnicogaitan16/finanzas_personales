@@ -43,10 +43,18 @@ def _activos() -> Any:
     return Movimiento.eliminado_en.is_(None)
 
 
-def listar_movimientos(db: Session, *, limit: int = 100, user_id: int | None = None) -> list[Movimiento]:
+def listar_movimientos(
+    db: Session,
+    *,
+    limit: int = 100,
+    user_id: int | None = None,
+    user_ids: list[int] | None = None,
+) -> list[Movimiento]:
     q = db.query(Movimiento).options(joinedload(Movimiento.user), joinedload(Movimiento.categoria)).filter(_activos())
     if user_id is not None:
         q = q.filter(Movimiento.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(Movimiento.user_id.in_(user_ids))
     return q.order_by(Movimiento.id.desc()).limit(limit).all()
 
 

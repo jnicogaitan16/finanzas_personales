@@ -10,16 +10,8 @@ from db.models import Base, Categoria, User
 from db.seed import CATEGORIAS_INICIALES
 from db.session import get_db
 from main import app
-from services.comandos import reset_pendientes
 
 TEST_DATABASE_URL = settings.database_url
-
-
-@pytest.fixture(autouse=True)
-def _limpiar_pendientes_comandos() -> Generator[None, None, None]:
-    reset_pendientes()
-    yield
-    reset_pendientes()
 
 
 @pytest.fixture(autouse=True)

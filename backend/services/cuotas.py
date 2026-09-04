@@ -66,34 +66,18 @@ def crear_compra(
     db.commit()
     db.refresh(compra)
 
-    # Vincular o crear movimiento
+    # Vincular movimiento existente si viene de /movimientos
     if movimiento_id:
-        # Vincular movimiento existente (creado desde /movimientos)
         mov = db.query(Movimiento).filter_by(id=movimiento_id).one_or_none()
         if mov:
             mov.compra_cuotas_id = compra.id
+            # Ajustar monto del movimiento a la cuota mensual (no el total)
+            mov.monto_cop = valor_cuota
+            mov.descripcion = f"{establecimiento.strip()} (1/{num_cuotas})"
             db.commit()
-    else:
-        # Crear movimiento nuevo (creado desde /cuotas)
-        cat_tarjeta = db.query(Categoria).filter_by(nombre="Tarjeta").one_or_none()
-        mov = Movimiento(
-            user_id=user_id,
-            categoria_id=cat_tarjeta.id if cat_tarjeta else None,
-            monto_cop=valor_total_cop,
-            descripcion=establecimiento.strip(),
-            mensaje_original=f"Compra TC: {establecimiento.strip()}",
-            fue_audio=False,
-            fecha_registro=ahora_bogota(),
-            fecha_gasto=fecha_compra,
-            medio_pago="tarjeta_credito",
-            es_compartido=es_compartido,
-            porcentaje_compartido=50 if es_compartido else None,
-            compra_cuotas_id=compra.id,
-        )
-        db.add(mov)
-        db.commit()
-        db.refresh(mov)
-        registrar_creacion(db, mov, origen="admin")
+
+    # No crear Movimiento por el monto total. Las cuotas mensuales se
+    # registran individualmente con registrar_pago() cuando se pagan.
 
     return compra
 
@@ -128,6 +112,7 @@ def listar_compras(
     db: Session,
     *,
     user_id: int | None = None,
+    user_ids: list[int] | None = None,
     solo_activas: bool = True,
 ) -> list[CompraCuotas]:
     q = (
@@ -137,6 +122,8 @@ def listar_compras(
     )
     if user_id:
         q = q.filter(CompraCuotas.user_id == user_id)
+    elif user_ids is not None:
+        q = q.filter(CompraCuotas.user_id.in_(user_ids))
     if solo_activas:
         q = q.filter(CompraCuotas.liquidada == False)  # noqa: E712
     return q.order_by(CompraCuotas.fecha_compra.desc()).all()

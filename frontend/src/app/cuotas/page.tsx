@@ -82,7 +82,7 @@ function ProgressBar({ pagadas, total }: { pagadas: number; total: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums text-muted-foreground">
+      <span className="text-xs tabular-nums text-gray-400">
         {pagadas}/{total}
       </span>
     </div>
@@ -274,20 +274,20 @@ export default function CuotasPage() {
 
       {/* ---- Summary cards ---- */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-1">
-          <p className="text-sm text-muted-foreground">Cuota mensual total</p>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-5 space-y-1">
+          <p className="text-sm text-gray-400">Cuota mensual total</p>
           <p className="text-2xl font-semibold tabular-nums text-rose-500">
             {formatCOP(cuotaMensualTotal)}
           </p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-1">
-          <p className="text-sm text-muted-foreground">Deuda total</p>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-5 space-y-1">
+          <p className="text-sm text-gray-400">Deuda total</p>
           <p className="text-2xl font-semibold tabular-nums text-rose-500">
             {formatCOP(deudaTotal)}
           </p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-5 space-y-1">
-          <p className="text-sm text-muted-foreground">Compras activas</p>
+        <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-5 space-y-1">
+          <p className="text-sm text-gray-400">Compras activas</p>
           <p className="text-2xl font-semibold tabular-nums">
             {comprasActivas}
           </p>
@@ -296,11 +296,11 @@ export default function CuotasPage() {
 
       {/* ---- Loading ---- */}
       {loadingCuotas && !cuotas && (
-        <p className="text-muted-foreground">Cargando...</p>
+        <p className="text-gray-400">Cargando...</p>
       )}
 
       {/* ---- Table ---- */}
-      <div className="rounded-2xl border border-border overflow-hidden">
+      <div className="rounded-2xl border border-white/5 overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -342,7 +342,7 @@ export default function CuotasPage() {
                   <TableCell className="text-right tabular-nums">
                     {formatCOP(c.valor_cuota_cop)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                  <TableCell className="text-right tabular-nums text-gray-400">
                     {formatCOP(c.valor_intereses_cop)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums font-medium text-rose-500">
@@ -351,7 +351,7 @@ export default function CuotasPage() {
                   <TableCell className="whitespace-nowrap">
                     {c.tarjeta ?? "---"}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                  <TableCell className="text-right tabular-nums text-gray-400">
                     {c.tasa_ea != null ? `${c.tasa_ea}%` : "---"}
                   </TableCell>
                   <TableCell className="text-center">
@@ -381,7 +381,7 @@ export default function CuotasPage() {
                 <TableRow>
                   <TableCell
                     colSpan={11}
-                    className="text-center text-muted-foreground py-10"
+                    className="text-center text-gray-400 py-10"
                   >
                     No hay compras en cuotas
                   </TableCell>
@@ -492,7 +492,7 @@ export default function CuotasPage() {
                 placeholder="0"
               />
               {form.num_cuotas && form.cuotas_pagadas && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-gray-400">
                   Saldo estimado:{" "}
                   <span className="font-medium text-rose-500">
                     {formatCOP(computeSaldo(form))}

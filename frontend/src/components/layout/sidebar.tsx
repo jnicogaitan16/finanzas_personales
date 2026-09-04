@@ -39,39 +39,26 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Overlay */}
       {open && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={onClose} />
       )}
-
-      {/* Sidebar panel */}
       <aside
         className={`
           fixed top-0 left-0 bottom-0 z-50 w-72
-          bg-[hsl(228,14%,10%)] border-r border-white/10
-          flex flex-col
-          transition-transform duration-300 ease-in-out
+          bg-[#0D1122] border-r border-white/5
+          flex flex-col transition-transform duration-300 ease-in-out
           lg:translate-x-0 lg:static lg:z-auto lg:w-60
           ${open ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Header */}
         <div className="h-16 flex items-center justify-between px-6 shrink-0">
           <Link href="/" className="text-lg font-bold text-gray-100" onClick={onClose}>
-            Finanzas <span className="text-emerald-400">app</span>
+            Finanzas <span className="text-violet-400">app</span>
           </Link>
-          <button
-            onClick={onClose}
-            className="lg:hidden p-1.5 rounded-lg hover:bg-white/10 text-gray-400"
-          >
+          <button onClick={onClose} className="lg:hidden p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Nav links */}
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           {links.map(({ href, label, icon: Icon }) => {
             const active = pathname === href
@@ -80,29 +67,25 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 key={href}
                 href={href}
                 onClick={onClose}
-                className={`
-                  flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-all
-                  ${active
-                    ? "bg-emerald-500/15 text-emerald-400"
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-all ${
+                  active
+                    ? "bg-violet-500/15 text-violet-400"
                     : "text-gray-400 hover:text-gray-100 hover:bg-white/5"
-                  }
-                `}
+                }`}
               >
-                <Icon className={`w-5 h-5 shrink-0 ${active ? "text-emerald-400" : ""}`} />
+                <Icon className={`w-5 h-5 shrink-0 ${active ? "text-violet-400" : ""}`} />
                 {label}
               </Link>
             )
           })}
         </nav>
-
-        {/* Account + Logout */}
-        <div className="px-3 pb-5 pt-3 border-t border-white/10 space-y-0.5">
+        <div className="px-3 pb-5 pt-3 border-t border-white/5 space-y-0.5">
           <Link
             href="/cuenta"
             onClick={onClose}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[15px] font-medium transition-all ${
               pathname === "/cuenta"
-                ? "bg-emerald-500/15 text-emerald-400"
+                ? "bg-violet-500/15 text-violet-400"
                 : "text-gray-400 hover:text-gray-100 hover:bg-white/5"
             }`}
           >
