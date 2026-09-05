@@ -14,7 +14,7 @@ def test_alembic_migration_chain_is_valid() -> None:
 
     script = ScriptDirectory.from_config(cfg)
     head = script.get_current_head()
-    assert head == "382ac2f6dbb4"
+    assert head == "b2c3d4e5f6a7"
 
     revisions = list(script.walk_revisions())
-    assert len(revisions) == 7
+    assert len(revisions) == 10

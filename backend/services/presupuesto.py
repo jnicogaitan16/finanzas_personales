@@ -124,7 +124,7 @@ def alerta_presupuesto(
         round(total / p.monto_limite_cop * 100) if p.monto_limite_cop > 0 else 0
     )
     if porcentaje >= 80:
-        from parser.mensajes import format_cop
+        from utils import format_cop
 
         cat = db.query(Categoria).filter_by(id=categoria_id).one_or_none()
         cat_nombre = cat.nombre if cat else "esta categoria"

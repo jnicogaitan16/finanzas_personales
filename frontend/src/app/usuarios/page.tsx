@@ -24,10 +24,10 @@ import {
 
 interface FormState {
   nombre: string
-  numero_whatsapp: string
+  email: string
 }
 
-const emptyForm: FormState = { nombre: "", numero_whatsapp: "" }
+const emptyForm: FormState = { nombre: "", email: "" }
 
 export default function UsuariosPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -49,7 +49,7 @@ export default function UsuariosPage() {
 
   function openEdit(u: Usuario) {
     setEditing(u)
-    setForm({ nombre: u.nombre, numero_whatsapp: u.numero_whatsapp })
+    setForm({ nombre: u.nombre, email: u.email ?? "" })
     setDialogOpen(true)
   }
 
@@ -74,7 +74,7 @@ export default function UsuariosPage() {
     try {
       const body = {
         nombre: form.nombre,
-        numero_whatsapp: form.numero_whatsapp,
+        email: form.email || null,
       }
       if (editing) {
         await api.patch(`/api/usuarios/${editing.id}`, body)
@@ -108,7 +108,7 @@ export default function UsuariosPage() {
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>Nombre</TableHead>
-                <TableHead>Telefono</TableHead>
+                <TableHead>Email</TableHead>
                 <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -117,8 +117,8 @@ export default function UsuariosPage() {
                 <TableRow key={u.id}>
                   <TableCell>{u.id}</TableCell>
                   <TableCell className="font-medium">{u.nombre}</TableCell>
-                  <TableCell className="font-mono text-gray-400">
-                    {u.numero_whatsapp}
+                  <TableCell className="text-gray-400">
+                    {u.email || "—"}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -170,14 +170,14 @@ export default function UsuariosPage() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Telefono</label>
+              <label className="text-sm font-medium">Email</label>
               <Input
-                required
-                value={form.numero_whatsapp}
+                type="email"
+                value={form.email}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, numero_whatsapp: e.target.value }))
+                  setForm((f) => ({ ...f, email: e.target.value }))
                 }
-                placeholder="57300..."
+                placeholder="usuario@ejemplo.com"
               />
             </div>
 
@@ -191,7 +191,7 @@ export default function UsuariosPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={saving || !form.nombre || !form.numero_whatsapp}
+                disabled={saving || !form.nombre}
               >
                 {saving ? "Guardando..." : editing ? "Actualizar" : "Crear"}
               </Button>

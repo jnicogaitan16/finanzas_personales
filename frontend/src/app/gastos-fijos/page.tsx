@@ -4,8 +4,10 @@ import { useState } from "react"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useUserFilter } from "@/hooks/use-user-filter"
+import { useAuth } from "@/hooks/use-auth"
 import { formatCOP } from "@/lib/format"
-import type { GastoFijo, Categoria, Usuario } from "@/lib/types"
+import type { GastoFijo, Categoria } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -31,7 +33,6 @@ import {
 } from "@/components/ui/table"
 
 interface FormState {
-  user_id: string
   categoria_id: string
   nombre: string
   monto_cop: string
@@ -41,7 +42,6 @@ interface FormState {
 }
 
 const emptyForm: FormState = {
-  user_id: "",
   categoria_id: "",
   nombre: "",
   monto_cop: "",
@@ -54,7 +54,8 @@ export default function GastosFijosPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<GastoFijo | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
-  const [filterUser, setFilterUser] = useState<string>("todos")
+  const { selectedUser: filterUser } = useUserFilter()
+  const { userId } = useAuth()
   const [saving, setSaving] = useState(false)
 
   const {
@@ -68,11 +69,6 @@ export default function GastosFijosPage() {
     5000,
   )
 
-  const { data: usuarios } = usePolling<Usuario[]>(
-    () => api.get("/api/usuarios"),
-    5000,
-  )
-
   function openCreate() {
     setEditing(null)
     setForm(emptyForm)
@@ -82,7 +78,6 @@ export default function GastosFijosPage() {
   function openEdit(g: GastoFijo) {
     setEditing(g)
     setForm({
-      user_id: String(g.user_id),
       categoria_id: String(g.categoria_id),
       nombre: g.nombre,
       monto_cop: String(g.monto_cop),
@@ -98,7 +93,7 @@ export default function GastosFijosPage() {
     setSaving(true)
     try {
       const body = {
-        user_id: Number(form.user_id),
+        user_id: userId,
         categoria_id: Number(form.categoria_id),
         nombre: form.nombre,
         monto_cop: Number(form.monto_cop),
@@ -154,20 +149,9 @@ export default function GastosFijosPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-bold text-gray-100">Gastos Fijos</h1>
         <div className="flex items-center gap-3">
-          <Select value={filterUser} onValueChange={(v) => setFilterUser(v ?? "todos")}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos</SelectItem>
-              {(usuarios ?? []).map((u) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={openCreate}>Nuevo gasto fijo</Button>
+          {(filterUser === "todos" || filterUser === String(userId)) && (
+            <Button onClick={openCreate}>Nuevo gasto fijo</Button>
+          )}
         </div>
       </div>
 
@@ -217,26 +201,28 @@ export default function GastosFijosPage() {
                     {g.dia_esperado ?? "—"}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => handleToggleActivo(g)}
-                      >
-                        {g.activo ? "Desactivar" : "Activar"}
-                      </Button>
-                      <Button variant="ghost" size="xs" onClick={() => openEdit(g)}>
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="text-rose-400"
-                        onClick={() => handleDelete(g.id)}
-                      >
-                        Borrar
-                      </Button>
-                    </div>
+                    {g.user_id === userId && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => handleToggleActivo(g)}
+                        >
+                          {g.activo ? "Desactivar" : "Activar"}
+                        </Button>
+                        <Button variant="ghost" size="xs" onClick={() => openEdit(g)}>
+                          Editar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          className="text-rose-400"
+                          onClick={() => handleDelete(g.id)}
+                        >
+                          Borrar
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -260,25 +246,6 @@ export default function GastosFijosPage() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-2">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Usuario</label>
-              <Select
-                value={form.user_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, user_id: v ?? "" }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar usuario" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(usuarios ?? []).map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">Categoria</label>
               <Select
@@ -368,7 +335,7 @@ export default function GastosFijosPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={saving || !form.user_id || !form.categoria_id || !form.nombre || !form.monto_cop}
+                disabled={saving || !form.categoria_id || !form.nombre || !form.monto_cop}
               >
                 {saving ? "Guardando..." : editing ? "Actualizar" : "Crear"}
               </Button>

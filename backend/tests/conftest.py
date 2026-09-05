@@ -1,3 +1,6 @@
+import os
+os.environ["TESTING"] = "1"
+
 from collections.abc import Generator
 
 import pytest
@@ -64,7 +67,7 @@ def seeded_session(db_session: Session) -> Session:
             tipo=item["tipo"],
             es_fijo=item.get("es_fijo", False),
         ))
-    db_session.add(User(nombre="Nico", numero_whatsapp="573001112233"))
+    db_session.add(User(nombre="Nico"))
     db_session.commit()
     return db_session
 

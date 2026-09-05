@@ -12,7 +12,6 @@ from admin.router import router as admin_router
 from config import settings
 from logging_config import setup_logging
 from db.session import get_db
-from db.users_seed import seed_authorized_users
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -22,18 +21,19 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    seed_authorized_users()
-    # Auto-registrar ingresos fijos del mes actual como Movimientos
-    try:
-        from db.session import SessionLocal
-        from services.ingresos import sincronizar_ingresos_fijos
-        db = SessionLocal()
-        creados = sincronizar_ingresos_fijos(db)
-        if creados:
-            logger.info("Ingresos fijos sincronizados: %d movimientos creados", creados)
-        db.close()
-    except Exception:
-        logger.exception("Error sincronizando ingresos fijos")
+    # Auto-registrar ingresos fijos del mes actual (skip en tests)
+    import os
+    if not os.environ.get("TESTING"):
+        try:
+            from db.session import SessionLocal
+            from services.ingresos import sincronizar_ingresos_fijos
+            db = SessionLocal()
+            creados = sincronizar_ingresos_fijos(db)
+            if creados:
+                logger.info("Ingresos fijos sincronizados: %d movimientos creados", creados)
+            db.close()
+        except Exception:
+            logger.exception("Error sincronizando ingresos fijos")
     yield
 
 

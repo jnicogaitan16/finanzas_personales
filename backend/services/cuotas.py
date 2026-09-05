@@ -17,7 +17,6 @@ def crear_compra(
     establecimiento: str,
     valor_total_cop: int,
     num_cuotas: int,
-    tarjeta: str | None = None,
     tarjeta_id: int | None = None,
     tasa_ea: float | None = None,
     es_compartido: bool = False,
@@ -42,8 +41,6 @@ def crear_compra(
             fecha_primera_cuota = calcular_fecha_primera_cuota(
                 fecha_compra, t.fecha_corte, t.fecha_pago,
             )
-            if not tarjeta:
-                tarjeta = t.nombre
             if tasa_ea is None and t.tasa_ea:
                 tasa_ea = t.tasa_ea
 
@@ -58,7 +55,6 @@ def crear_compra(
         valor_cuota_cop=valor_cuota,
         tasa_ea=tasa_ea,
         numero_transaccion=numero_transaccion,
-        tarjeta=tarjeta,
         saldo_pendiente_cop=valor_total_cop,
         fecha_primera_cuota=fecha_primera_cuota,
     )
@@ -95,7 +91,6 @@ def registrar_pago(db: Session, compra: CompraCuotas) -> Movimiento:
         user_id=compra.user_id,
         monto_cop=compra.valor_cuota_cop,
         descripcion=f"{compra.establecimiento} ({compra.cuotas_pagadas}/{compra.num_cuotas})",
-        mensaje_original=f"Cuota {compra.cuotas_pagadas}/{compra.num_cuotas} - {compra.establecimiento}",
         fecha_registro=ahora_bogota(),
         fecha_gasto=ahora_bogota().date(),
         compra_cuotas_id=compra.id,
@@ -154,9 +149,7 @@ def serializar_compra(c: CompraCuotas, db: Session | None = None) -> dict:
                     break
     except Exception:
         pass
-    tarjeta_nombre = c.tarjeta
-    if c.tarjeta_rel:
-        tarjeta_nombre = c.tarjeta_rel.nombre
+    tarjeta_nombre = c.tarjeta_rel.nombre if c.tarjeta_rel else None
     return {
         "id": c.id,
         "user_id": c.user_id,

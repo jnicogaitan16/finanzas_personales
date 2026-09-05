@@ -210,7 +210,7 @@ def sincronizar_ingresos_fijos(
     """Crea Movimientos para ingresos fijos que no se han registrado en el mes.
 
     Para cada IngresoRecurrente tipo='fijo' activo, verifica si ya existe
-    un Movimiento con mensaje_original marcado. Si no, lo crea.
+    un Movimiento con marca_dedup marcado. Si no, lo crea.
 
     Si es quincenal, crea 2 movimientos (dia_pago_1 y dia_pago_2).
 
@@ -255,7 +255,7 @@ def sincronizar_ingresos_fijos(
             existe = (
                 db.query(Movimiento)
                 .filter(
-                    Movimiento.mensaje_original == marca,
+                    Movimiento.marca_dedup == marca,
                     Movimiento.eliminado_en.is_(None),
                 )
                 .one_or_none()
@@ -269,7 +269,7 @@ def sincronizar_ingresos_fijos(
                 categoria_id=cat_id,
                 monto_cop=ing.monto_cop,
                 descripcion=descripcion,
-                mensaje_original=marca,
+                marca_dedup=marca,
                 fecha_registro=ahora_bogota(),
                 fecha_gasto=date(year, month, dia_real),
             )

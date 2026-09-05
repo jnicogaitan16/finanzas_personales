@@ -42,8 +42,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nombre: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    numero_whatsapp: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_id: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
     grupo_id: Mapped[int | None] = mapped_column(ForeignKey("grupos.id"), nullable=True, index=True)
 
     grupo: Mapped[Grupo | None] = relationship(back_populates="miembros")
@@ -54,6 +55,7 @@ class User(Base):
     gastos_fijos: Mapped[list[GastoFijo]] = relationship(back_populates="user")
     tarjetas: Mapped[list[TarjetaCredito]] = relationship(back_populates="user")
     ingresos: Mapped[list[IngresoRecurrente]] = relationship(back_populates="user")
+    metas_ahorro: Mapped[list[MetaAhorro]] = relationship(back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User id={self.id} nombre={self.nombre!r}>"
@@ -90,9 +92,7 @@ class Movimiento(Base):
     )
     monto_cop: Mapped[int] = mapped_column(Integer, nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
-    mensaje_original: Mapped[str] = mapped_column(Text, nullable=False)
-    fue_audio: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    confianza_parsing: Mapped[float | None] = mapped_column(Float, nullable=True)
+    marca_dedup: Mapped[str | None] = mapped_column(Text, nullable=True)
     fecha_registro: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
@@ -162,7 +162,6 @@ class CompraCuotas(Base):
     valor_intereses_cop: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tasa_ea: Mapped[float | None] = mapped_column(Float, nullable=True)
     numero_transaccion: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tarjeta: Mapped[str | None] = mapped_column(Text, nullable=True)
     saldo_pendiente_cop: Mapped[int] = mapped_column(Integer, nullable=False)
     liquidada: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fecha_ultima_cuota: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -286,6 +285,26 @@ class Presupuesto(Base):
             f"<Presupuesto id={self.id} mes={self.mes_vigente!r} "
             f"limite={self.monto_limite_cop}>"
         )
+
+
+class MetaAhorro(Base):
+    __tablename__ = "metas_ahorro"
+    __table_args__ = (
+        UniqueConstraint("user_id", "nombre", name="uq_meta_ahorro_user_nombre"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    nombre: Mapped[str] = mapped_column(Text, nullable=False)
+    monto_objetivo_cop: Mapped[int] = mapped_column(Integer, nullable=False)
+    monto_actual_cop: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fecha_limite: Mapped[date | None] = mapped_column(Date, nullable=True)
+    activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    user: Mapped[User] = relationship(back_populates="metas_ahorro")
+
+    def __repr__(self) -> str:
+        return f"<MetaAhorro id={self.id} nombre={self.nombre!r} objetivo={self.monto_objetivo_cop}>"
 
 
 class IngresoRecurrente(Base):

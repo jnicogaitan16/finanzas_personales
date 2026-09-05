@@ -1,6 +1,6 @@
 "use client"
 import { useCallback } from "react"
-import { AlertTriangle, Bell, CreditCard, AlertCircle } from "lucide-react"
+import { AlertTriangle, Bell, CreditCard, AlertCircle, TrendingUp, Wallet, PiggyBank, DollarSign } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
 
@@ -15,6 +15,11 @@ const ICONS: Record<string, typeof Bell> = {
   presupuesto: AlertTriangle,
   pago_tarjeta: CreditCard,
   deuda_vencida: AlertCircle,
+  gasto_inusual: TrendingUp,
+  tendencia_alcista: TrendingUp,
+  ingreso_no_recibido: DollarSign,
+  cupo_tc_bajo: Wallet,
+  oportunidad_ahorro: PiggyBank,
 }
 
 const COLORS: Record<string, { bg: string; border: string; text: string }> = {

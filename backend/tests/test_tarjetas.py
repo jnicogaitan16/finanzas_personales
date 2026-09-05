@@ -97,7 +97,6 @@ def test_crear_compra_con_tarjeta(seeded_session: Session) -> None:
         tarjeta_id=t.id,
     )
     assert compra.tarjeta_id == t.id
-    assert compra.tarjeta == "Nu Card"
     assert compra.tasa_ea == 28.0
     assert compra.fecha_primera_cuota == date(2026, 9, 25)
     assert compra.valor_cuota_cop == 100_000

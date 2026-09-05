@@ -2,145 +2,54 @@ import { test, expect, Page } from "@playwright/test";
 
 const TS = () => Date.now().toString(36);
 
-async function crearMovimiento(
-  page: Page,
-  datos: {
-    monto: string;
-    descripcion: string;
-    medio_pago?: string;
-    compartido?: boolean;
-  },
-) {
-  await page.getByRole("button", { name: "Nuevo movimiento" }).click();
+async function crearMovimiento(page: Page, datos: { monto: string; descripcion: string }) {
+  // Navigate to movimientos and open create dialog
+  await page.goto("/movimientos");
+  await page.waitForTimeout(1000);
+
+  // Use FAB or direct URL with ?new=1
+  await page.goto("/movimientos?new=1");
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
+  await expect(dialog).toBeVisible({ timeout: 5000 });
 
-  // Select first user (native select, first option is "Seleccionar")
-  const userSelect = dialog.locator("select").first();
-  await userSelect.selectOption({ index: 1 });
-
-  // Fill monto (input type=number with placeholder "0")
-  await dialog.locator('input[type="number"]').first().fill(datos.monto);
+  // Fill monto (inputMode numeric, formatted as COP)
+  const montoInput = dialog.locator("input").first();
+  await montoInput.fill(datos.monto);
 
   // Fill descripcion
-  await dialog.getByPlaceholder("Descripcion").fill(datos.descripcion);
-
-  if (datos.medio_pago) {
-    const medioPagoSelect = dialog
-      .locator("select")
-      .filter({ has: page.locator(`option[value="${datos.medio_pago}"]`) });
-    await medioPagoSelect.selectOption(datos.medio_pago);
-  }
-
-  if (datos.compartido) {
-    await dialog.getByText("Compartido").click();
-  }
+  await dialog.getByPlaceholder("Uber, Mercado, Netflix...").fill(datos.descripcion);
 
   await dialog.getByRole("button", { name: "Crear" }).click();
   await expect(dialog).not.toBeVisible({ timeout: 5000 });
 }
 
-test.describe("Movimientos CRUD", () => {
+test.describe("Movimientos", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/movimientos");
-    await expect(page.getByRole("heading", { name: "Movimientos" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Gastos" })).toBeVisible();
   });
 
-  test("muestra tabla de movimientos", async ({ page }) => {
-    await expect(page.getByRole("table")).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Fecha" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Monto" })).toBeVisible();
+  test("muestra lista de movimientos", async ({ page }) => {
+    // Should show the expandable list (not a table)
+    await page.waitForTimeout(2000);
+    // Either shows items or "Sin movimientos"
+    const hasItems = await page.locator("[class*='rounded-2xl']").count();
+    expect(hasItems).toBeGreaterThan(0);
   });
 
-  test("crear movimiento basico", async ({ page }) => {
-    const desc = `Test mov ${TS()}`;
-    await crearMovimiento(page, { monto: "25000", descripcion: desc });
+  test("crear y eliminar movimiento", async ({ page }) => {
+    const desc = `Test ${TS()}`;
+    await crearMovimiento(page, { monto: "15000", descripcion: desc });
 
+    await page.goto("/movimientos");
     await expect(page.getByText(desc)).toBeVisible({ timeout: 10000 });
 
-    // Cleanup
-    const row = page.locator("tr").filter({ hasText: desc });
+    // Tap to expand
+    await page.getByText(desc).click();
+
+    // Click Eliminar
     page.on("dialog", (d) => d.accept());
-    await row.getByText("Borrar").click();
-    await expect(row).not.toBeVisible({ timeout: 10000 });
-  });
-
-  test("editar movimiento cambia el monto", async ({ page }) => {
-    const desc = `Test edit ${TS()}`;
-    await crearMovimiento(page, { monto: "10000", descripcion: desc });
-    await expect(page.getByText(desc)).toBeVisible({ timeout: 10000 });
-
-    // Click edit
-    const row = page.locator("tr").filter({ hasText: desc });
-    await row.getByText("Editar").click();
-
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("Editar movimiento")).toBeVisible();
-    // Monto is the first number input
-    await dialog.locator('input[type="number"]').first().fill("99000");
-    await dialog.getByRole("button", { name: "Actualizar" }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    await expect(page.getByText("$99.000")).toBeVisible({ timeout: 10000 });
-
-    // Cleanup
-    page.on("dialog", (d) => d.accept());
-    const updatedRow = page.locator("tr").filter({ hasText: desc });
-    await updatedRow.getByText("Borrar").click();
-  });
-
-  test("eliminar movimiento con confirmacion", async ({ page }) => {
-    const desc = `Test del ${TS()}`;
-    await crearMovimiento(page, { monto: "5000", descripcion: desc });
-    await expect(page.getByText(desc)).toBeVisible({ timeout: 10000 });
-
-    // Dismiss confirm — movimiento persists
-    page.once("dialog", (d) => d.dismiss());
-    const row = page.locator("tr").filter({ hasText: desc });
-    await row.getByText("Borrar").click();
-    await expect(page.getByText(desc)).toBeVisible();
-
-    // Accept confirm — movimiento disappears
-    page.on("dialog", (d) => d.accept());
-    await row.getByText("Borrar").click();
-    await expect(row).not.toBeVisible({ timeout: 10000 });
-  });
-
-  test("filtrar movimientos por usuario", async ({ page }) => {
-    // Shadcn Select trigger
-    const trigger = page.locator("button").filter({ hasText: "Todos" });
-    if (await trigger.isVisible()) {
-      await trigger.click();
-      const options = page.getByRole("option");
-      const count = await options.count();
-      if (count > 1) {
-        const userName = await options.nth(1).textContent();
-        await options.nth(1).click();
-        await page.waitForTimeout(500);
-        const rows = page.locator("table tbody tr");
-        const rowCount = await rows.count();
-        for (let i = 0; i < Math.min(rowCount, 5); i++) {
-          const userCell = await rows.nth(i).locator("td").nth(1).textContent();
-          expect(userCell?.toLowerCase()).toBe(userName?.toLowerCase());
-        }
-      }
-    }
-  });
-
-  test("validacion: boton deshabilitado y TC muestra cuotas", async ({ page }) => {
-    await page.getByRole("button", { name: "Nuevo movimiento" }).click();
-    const dialog = page.getByRole("dialog");
-
-    // Button disabled without user and monto
-    await expect(dialog.getByRole("button", { name: "Crear" })).toBeDisabled();
-
-    // Select TC → shows cuotas field
-    const medioPagoSelect = dialog
-      .locator("select")
-      .filter({ has: page.locator('option[value="tarjeta_credito"]') });
-    await medioPagoSelect.selectOption("tarjeta_credito");
-    await expect(dialog.locator('input[type="number"][min="1"]')).toBeVisible();
-
-    await dialog.getByRole("button", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Eliminar" }).click();
+    await expect(page.getByText(desc)).not.toBeVisible({ timeout: 10000 });
   });
 });

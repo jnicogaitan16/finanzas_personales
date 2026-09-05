@@ -8,7 +8,7 @@ interface SaludFinanciera {
   score: number
   max_score: number
   nivel: string
-  detalles: { criterio: string; cumple: boolean; detalle: string }[]
+  detalles: { criterio: string; cumple: boolean; peso: number; detalle: string }[]
 }
 
 const NIVEL_COLORS: Record<string, string> = {
@@ -66,17 +66,19 @@ export function ScoreCard() {
         </div>
 
         {/* Criteria */}
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-1.5">
           {data.detalles.map((d, i) => (
             <div key={i} className="flex items-start gap-2">
               {d.cumple ? (
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
               ) : (
-                <X className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
+                <X className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" />
               )}
-              <div className="min-w-0">
-                <p className={`text-xs font-medium ${d.cumple ? "text-gray-200" : "text-gray-500"}`}>{d.criterio}</p>
-                <p className="text-[11px] text-gray-500 truncate">{d.detalle}</p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1">
+                  <p className={`text-[11px] font-medium ${d.cumple ? "text-gray-200" : "text-gray-500"}`}>{d.criterio}</p>
+                  <span className="text-[9px] text-gray-600">{d.peso}pts</span>
+                </div>
               </div>
             </div>
           ))}

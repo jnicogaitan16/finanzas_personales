@@ -23,7 +23,6 @@ interface FormState {
   monto_cop: string
   descripcion: string
   fecha_gasto: string
-  mensaje_original: string
   medio_pago: string
   es_compartido: boolean
   num_cuotas: string
@@ -36,7 +35,6 @@ const emptyForm: FormState = {
   monto_cop: "",
   descripcion: "",
   fecha_gasto: "",
-  mensaje_original: "",
   medio_pago: "cuenta_ahorros",
   es_compartido: false,
   num_cuotas: "1",
@@ -116,7 +114,6 @@ export default function MovimientosPage() {
       monto_cop: String(m.monto_cop),
       descripcion: m.descripcion ?? "",
       fecha_gasto: m.fecha_gasto ? formatDate(m.fecha_gasto) : "",
-      mensaje_original: m.mensaje_original ?? "",
       medio_pago: m.medio_pago ?? "cuenta_ahorros",
       es_compartido: m.es_compartido ?? false,
       num_cuotas: "1",
@@ -146,7 +143,6 @@ export default function MovimientosPage() {
         monto_cop: Number(form.monto_cop),
         descripcion: form.descripcion || null,
         fecha_gasto: form.fecha_gasto || null,
-        mensaje_original: form.mensaje_original || null,
         medio_pago: form.medio_pago || null,
         es_compartido: form.es_compartido,
         porcentaje_compartido: form.es_compartido ? 50 : null,

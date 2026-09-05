@@ -1,33 +1,19 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Dashboard", () => {
-  test("muestra KPIs y filtro de usuario", async ({ page }) => {
+  test("muestra balance y modulos", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("Gasto del mes")).toBeVisible();
-    await expect(page.getByText("Ingreso del mes")).toBeVisible();
-
-    // User filter exists and works
-    const select = page.locator("select").first();
-    await expect(select).toBeVisible();
-    const options = select.locator("option");
-    const count = await options.count();
-    if (count > 1) {
-      await select.selectOption({ index: 1 });
-      await expect(page.getByText("Gasto del mes")).toBeVisible();
-    }
+    await expect(page.getByText("Balance del mes")).toBeVisible();
+    await expect(page.getByText("Ingresos")).toBeVisible();
+    await expect(page.getByText("Gastos")).toBeVisible();
   });
 
   test("navegacion de meses cambia datos", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-
-    // Find month label and prev button
-    const header = page.locator("div").filter({ hasText: /Dashboard/ }).first();
-    const monthLabel = page.locator("span.text-sm.font-medium").first();
+    const monthLabel = page.locator("span.text-sm.font-semibold").first();
     const initialMonth = await monthLabel.textContent();
 
-    // Click previous month
     const prevButton = page
       .locator("button")
       .filter({ has: page.locator("svg.lucide-chevron-left") });

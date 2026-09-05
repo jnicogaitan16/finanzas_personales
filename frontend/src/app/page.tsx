@@ -1,7 +1,7 @@
 "use client"
 import { useCallback, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, CreditCard, Users } from "lucide-react"
+import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown, CreditCard, Users, Target } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
 import { useUserFilter } from "@/hooks/use-user-filter"
@@ -131,6 +131,17 @@ export default function DashboardPage() {
             <CreditCard className="w-4 h-4 text-violet-400" />
           </div>
           <p className="text-sm text-violet-400">Ver cuotas y TC</p>
+        </div>
+
+        <div
+          onClick={() => router.push("/metas-ahorro")}
+          className="bg-gradient-to-br from-amber-500/15 to-amber-600/5 border border-white/5 rounded-2xl p-4 cursor-pointer active:scale-[0.97] transition-transform"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-gray-400 text-xs uppercase tracking-wide">Metas</span>
+            <Target className="w-4 h-4 text-amber-400" />
+          </div>
+          <p className="text-sm text-amber-400">Ahorro</p>
         </div>
 
         {grupoLleno && (

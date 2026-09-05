@@ -8,8 +8,7 @@ export interface Movimiento {
   monto_cop: number
   monto_fmt: string
   descripcion: string | null
-  mensaje_original: string
-  fue_audio: boolean
+  marca_dedup?: string | null
   fecha_gasto: string | null
   fecha_registro: string | null
   es_compartido?: boolean
@@ -26,7 +25,7 @@ export interface Categoria {
 export interface Usuario {
   id: number
   nombre: string
-  numero_whatsapp: string
+  email: string | null
 }
 
 export interface MovimientoIn {
@@ -34,7 +33,6 @@ export interface MovimientoIn {
   categoria_id: number | null
   monto_cop: number
   descripcion: string | null
-  mensaje_original?: string | null
   fecha_gasto: string | null
 }
 
@@ -44,7 +42,6 @@ export interface MovimientoPatch {
   limpiar_categoria?: boolean
   monto_cop?: number
   descripcion?: string | null
-  mensaje_original?: string | null
   fecha_gasto?: string | null
 }
 
@@ -163,6 +160,17 @@ export interface Deuda {
   tasa_ea: number | null
   activa: boolean
   notas: string | null
+}
+
+export interface MetaAhorro {
+  id: number
+  user_id: number
+  nombre: string
+  monto_objetivo_cop: number
+  monto_actual_cop: number
+  fecha_limite: string | null
+  activa: boolean
+  progreso: number
 }
 
 export interface BalanceCompartido {

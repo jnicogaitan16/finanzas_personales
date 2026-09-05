@@ -4,7 +4,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from db.models import CompraCuotas, Deuda, GastoFijo, Movimiento, User
-from parser.mensajes import format_cop
+from utils import format_cop
 
 
 def calcular_balance(db: Session, *, mes: str | None = None, grupo_id: int | None = None) -> dict:
@@ -81,7 +81,7 @@ def calcular_balance(db: Session, *, mes: str | None = None, grupo_id: int | Non
         otros = [u for u in users if u.id != m.user_id]
         if otros:
             detalles.append({
-                "concepto": m.descripcion or m.mensaje_original or "Gasto compartido",
+                "concepto": m.descripcion or "Gasto compartido",
                 "valor_compra": None,
                 "total": m.monto_cop,
                 "mitad": mitad,

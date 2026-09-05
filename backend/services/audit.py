@@ -12,8 +12,6 @@ def _movimiento_a_dict(m: Movimiento) -> dict:
         "categoria_id": m.categoria_id,
         "monto_cop": m.monto_cop,
         "descripcion": m.descripcion,
-        "mensaje_original": m.mensaje_original,
-        "fue_audio": m.fue_audio,
         "fecha_gasto": m.fecha_gasto.isoformat() if m.fecha_gasto else None,
     }
 

@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import qrcode
-import qrcode.image.svg
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
@@ -17,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from admin.auth import (
     COOKIE_NAME,
+    create_session_for_user,
     get_session,
     get_visible_user_ids,
     hash_password,
@@ -26,7 +25,8 @@ from admin.auth import (
 )
 
 limiter = Limiter(key_func=get_remote_address)
-from db.models import Categoria, CompraCuotas, Deuda, GastoFijo, Presupuesto, User
+from config import settings
+from db.models import Categoria, CompraCuotas, Deuda, GastoFijo, MetaAhorro, Presupuesto, User
 from db.session import get_db
 from services import admin as svc
 from services import balance as svc_balance
@@ -35,6 +35,7 @@ from services import ingresos as svc_ingresos
 from services import inteligencia as svc_intel
 from services import tarjetas as svc_tarjetas
 from services import gastos_fijos as svc_gf
+from services import metas_ahorro as svc_metas
 from services import presupuesto as svc_ppto
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -71,7 +72,6 @@ class MovimientoIn(BaseModel):
     categoria_id: int | None = None
     monto_cop: int
     descripcion: str | None = None
-    mensaje_original: str | None = None
     fecha_gasto: date | None = None
     medio_pago: str | None = None
     es_compartido: bool = False
@@ -84,7 +84,6 @@ class MovimientoPatch(BaseModel):
     limpiar_categoria: bool = False
     monto_cop: int | None = None
     descripcion: str | None = None
-    mensaje_original: str | None = None
     fecha_gasto: date | None = None
     medio_pago: str | None = None
     es_compartido: bool | None = None
@@ -98,7 +97,7 @@ class CategoriaIn(BaseModel):
 
 class UsuarioIn(BaseModel):
     nombre: str
-    numero_whatsapp: str
+    email: str | None = None
 
 
 class PresupuestoIn(BaseModel):
@@ -134,7 +133,6 @@ class CompraIn(BaseModel):
     establecimiento: str
     valor_total_cop: int
     num_cuotas: int
-    tarjeta: str | None = None
     tarjeta_id: int | None = None
     tasa_ea: float | None = None
     descripcion: str | None = None
@@ -152,7 +150,6 @@ class CompraPatch(BaseModel):
     valor_cuota_cop: int | None = None
     valor_intereses_cop: int | None = None
     tasa_ea: float | None = None
-    tarjeta: str | None = None
     numero_transaccion: str | None = None
     descripcion: str | None = None
     es_compartido: bool | None = None
@@ -226,17 +223,21 @@ class RegisterIn(BaseModel):
 
 
 @router.post("/api/register", status_code=201)
+@limiter.limit("10/minute")
 def api_register(
+    request: Request,
     payload: RegisterIn,
     db: Session = Depends(get_db),
 ) -> dict:
     from db.models import Grupo
-    import secrets as _secrets
-    from datetime import datetime, timedelta, timezone
 
     nombre = payload.nombre.strip()
     if not nombre or len(payload.password) < 4:
         raise HTTPException(status_code=400, detail="Nombre y password (min 4 chars) requeridos")
+
+    # Si registro cerrado, solo se permite con código de invitación
+    if not settings.registro_abierto and not payload.codigo_invitacion:
+        raise HTTPException(status_code=403, detail="El registro requiere un codigo de invitacion")
 
     if db.query(User).filter(User.nombre == nombre).one_or_none():
         raise HTTPException(status_code=409, detail="Ya existe un usuario con ese nombre")
@@ -252,7 +253,7 @@ def api_register(
         )
         if not grupo:
             raise HTTPException(status_code=400, detail="Codigo de invitacion invalido")
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         if grupo.codigo_expira and grupo.codigo_expira < now:
             raise HTTPException(status_code=400, detail="Codigo de invitacion expirado")
         miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
@@ -264,7 +265,6 @@ def api_register(
 
     user = User(
         nombre=nombre,
-        numero_whatsapp=_secrets.token_hex(6),  # placeholder
         password_hash=hash_password(payload.password),
         grupo_id=grupo_id,
     )
@@ -282,6 +282,141 @@ def api_register(
         db.commit()
 
     return {"id": user.id, "nombre": user.nombre, "grupo_id": user.grupo_id}
+
+
+@router.get("/api/auth-config")
+def api_auth_config() -> dict:
+    """Public endpoint: returns auth configuration for the login page."""
+    return {
+        "registro_abierto": settings.registro_abierto,
+        "google_enabled": bool(settings.google_client_id),
+    }
+
+
+# ── Google OAuth ─────────────────────────────────────────────────────
+
+
+@router.get("/api/oauth/google/url")
+def api_oauth_google_url() -> dict:
+    """Returns the Google OAuth consent URL."""
+    from urllib.parse import urlencode
+
+    if not settings.google_client_id:
+        raise HTTPException(status_code=501, detail="Google OAuth no configurado")
+
+    params = urlencode({
+        "client_id": settings.google_client_id,
+        "redirect_uri": settings.google_redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account",
+    })
+    return {"url": f"https://accounts.google.com/o/oauth2/v2/auth?{params}"}
+
+
+class OAuthCallbackIn(BaseModel):
+    code: str
+
+
+@router.post("/api/oauth/google/callback")
+def api_oauth_google_callback(
+    payload: OAuthCallbackIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Exchange Google auth code for user info, create/find user, return session token."""
+    import httpx
+
+    from db.models import Grupo
+
+    if not settings.google_client_id or not settings.google_client_secret:
+        raise HTTPException(status_code=501, detail="Google OAuth no configurado")
+
+    # 1. Exchange code for tokens
+    token_res = httpx.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": payload.code,
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uri": settings.google_redirect_uri,
+            "grant_type": "authorization_code",
+        },
+        timeout=10,
+    )
+    if token_res.status_code != 200:
+        raise HTTPException(status_code=401, detail="Error al autenticar con Google")
+
+    tokens = token_res.json()
+    access_token = tokens.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No se recibio access_token de Google")
+
+    # 2. Get user info
+    userinfo_res = httpx.get(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10,
+    )
+    if userinfo_res.status_code != 200:
+        raise HTTPException(status_code=401, detail="Error al obtener info de Google")
+
+    ginfo = userinfo_res.json()
+    google_id = ginfo.get("id")
+    email = ginfo.get("email")
+    name = ginfo.get("name") or email
+
+    if not google_id or not email:
+        raise HTTPException(status_code=400, detail="Google no retorno email o id")
+
+    # 3. Find or create user
+    user = db.query(User).filter(User.google_id == google_id).one_or_none()
+
+    if not user:
+        # Check if there's an existing user with same email
+        user = db.query(User).filter(User.email == email).one_or_none()
+        if user:
+            # Link existing account to Google
+            user.google_id = google_id
+            db.commit()
+        else:
+            # Registro cerrado: no se crean cuentas nuevas sin invitación
+            if not settings.registro_abierto:
+                raise HTTPException(
+                    status_code=403,
+                    detail="No hay una cuenta asociada a este correo. Pide una invitacion al administrador.",
+                )
+
+            # Create new user
+            base_name = name
+            nombre = base_name
+            counter = 1
+            while db.query(User).filter(User.nombre == nombre).one_or_none():
+                nombre = f"{base_name} {counter}"
+                counter += 1
+
+            user = User(
+                nombre=nombre,
+                email=email,
+                google_id=google_id,
+                password_hash=None,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+            # Create personal group
+            grupo = Grupo(nombre=f"Hogar de {nombre}")
+            db.add(grupo)
+            db.commit()
+            db.refresh(grupo)
+            user.grupo_id = grupo.id
+            db.commit()
+
+    # 4. Create session
+    token = create_session_for_user(user)
+
+    return {"token": token, "user": {"id": user.id, "nombre": user.nombre}}
 
 
 MAX_MIEMBROS_GRUPO = 2
@@ -304,7 +439,6 @@ def api_generar_invitacion(
     """Genera un código de invitación para el grupo del usuario logueado."""
     from db.models import Grupo
     import secrets as _secrets
-    from datetime import datetime, timedelta, timezone
 
     grupo_id = session.get("grupo_id")
     if not grupo_id:
@@ -320,7 +454,7 @@ def api_generar_invitacion(
 
     codigo = _secrets.token_urlsafe(6)[:8].upper()
     grupo.codigo_invitacion = codigo
-    grupo.codigo_expira = datetime.utcnow() + timedelta(hours=24)
+    grupo.codigo_expira = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=24)
     db.commit()
 
     return {"codigo": codigo, "expira_en": "24 horas"}
@@ -332,7 +466,6 @@ def api_me(
     db: Session = Depends(get_db),
 ) -> dict:
     from db.models import Grupo
-    from datetime import datetime, timezone
     user = db.query(User).filter_by(id=session["user_id"]).one_or_none()
     if not user:
         raise HTTPException(status_code=404)
@@ -348,7 +481,7 @@ def api_me(
                 {"id": m.id, "nombre": m.nombre}
                 for m in db.query(User).filter_by(grupo_id=g.id).all()
             ]
-            if g.codigo_invitacion and g.codigo_expira and g.codigo_expira > datetime.utcnow():
+            if g.codigo_invitacion and g.codigo_expira and g.codigo_expira > datetime.now(UTC).replace(tzinfo=None):
                 codigo_activo = g.codigo_invitacion
 
     return {
@@ -368,7 +501,6 @@ def api_unirse_grupo(
     db: Session = Depends(get_db),
 ) -> dict:
     from db.models import Grupo
-    from datetime import datetime, timezone
 
     user = db.query(User).filter_by(id=session["user_id"]).one()
 
@@ -385,7 +517,7 @@ def api_unirse_grupo(
     )
     if not grupo:
         raise HTTPException(status_code=400, detail="Codigo invalido")
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
     if grupo.codigo_expira and grupo.codigo_expira < now:
         raise HTTPException(status_code=400, detail="Codigo expirado")
     miembros = db.query(User).filter(User.grupo_id == grupo.id).count()
@@ -410,7 +542,9 @@ def api_unirse_grupo(
 
 
 @router.post("/api/cambiar-password")
+@limiter.limit("5/minute")
 def api_cambiar_password(
+    request: Request,
     payload: CambiarPasswordIn,
     session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -501,7 +635,6 @@ def api_crear_movimiento(
             categoria_id=payload.categoria_id,
             monto_cop=payload.monto_cop,
             descripcion=payload.descripcion,
-            mensaje_original=payload.mensaje_original or payload.descripcion or "carga manual",
             fecha_gasto=payload.fecha_gasto,
             medio_pago=payload.medio_pago,
             es_compartido=payload.es_compartido,
@@ -533,7 +666,6 @@ def api_actualizar_movimiento(
             categoria_id=payload.categoria_id,
             monto_cop=payload.monto_cop,
             descripcion=payload.descripcion,
-            mensaje_original=payload.mensaje_original,
             fecha_gasto=payload.fecha_gasto,
             limpiar_categoria=payload.limpiar_categoria,
             medio_pago=payload.medio_pago,
@@ -619,10 +751,10 @@ def api_eliminar_categoria(
 def api_listar_usuarios(
     session: dict = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> list[dict[str, int | str]]:
+) -> list[dict[str, Any]]:
     visible = _visible_ids(session, db)
     users = db.query(User).filter(User.id.in_(visible)).order_by(User.id).all()
-    return [{"id": u.id, "nombre": u.nombre, "numero_whatsapp": u.numero_whatsapp} for u in users]
+    return [{"id": u.id, "nombre": u.nombre, "email": u.email} for u in users]
 
 
 @router.post("/api/usuarios", status_code=201)
@@ -632,10 +764,10 @@ def api_crear_usuario(
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
     try:
-        user = svc.crear_usuario(db, nombre=payload.nombre, numero_whatsapp=payload.numero_whatsapp)
+        user = svc.crear_usuario(db, nombre=payload.nombre, email=payload.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"id": user.id, "nombre": user.nombre, "numero_whatsapp": user.numero_whatsapp}
+    return {"id": user.id, "nombre": user.nombre, "email": user.email}
 
 
 @router.patch("/api/usuarios/{user_id}")
@@ -653,11 +785,11 @@ def api_actualizar_usuario(
             db,
             user,
             nombre=payload.nombre,
-            numero_whatsapp=payload.numero_whatsapp,
+            email=payload.email,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"id": user.id, "nombre": user.nombre, "numero_whatsapp": user.numero_whatsapp}
+    return {"id": user.id, "nombre": user.nombre, "email": user.email}
 
 
 @router.delete("/api/usuarios/{user_id}")
@@ -1130,7 +1262,6 @@ def api_crear_cuota(
             establecimiento=payload.establecimiento,
             valor_total_cop=payload.valor_total_cop,
             num_cuotas=payload.num_cuotas,
-            tarjeta=payload.tarjeta,
             tarjeta_id=payload.tarjeta_id,
             tasa_ea=payload.tasa_ea,
             descripcion=payload.descripcion,
@@ -1185,8 +1316,6 @@ def api_actualizar_cuota(
         compra.valor_intereses_cop = payload.valor_intereses_cop
     if payload.tasa_ea is not None:
         compra.tasa_ea = payload.tasa_ea
-    if payload.tarjeta is not None:
-        compra.tarjeta = payload.tarjeta
     if payload.numero_transaccion is not None:
         compra.numero_transaccion = payload.numero_transaccion
     if payload.descripcion is not None:
@@ -1367,4 +1496,97 @@ def api_eliminar_deuda(
         raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propios registros")
     db.delete(d)
     db.commit()
+    return {"status": "ok"}
+
+
+# ── Metas de Ahorro ──────────────────────────────────────────────────
+
+
+class MetaAhorroIn(BaseModel):
+    user_id: int
+    nombre: str
+    monto_objetivo_cop: int
+    monto_actual_cop: int = 0
+    fecha_limite: date | None = None
+
+
+class MetaAhorroPatch(BaseModel):
+    nombre: str | None = None
+    monto_objetivo_cop: int | None = None
+    monto_actual_cop: int | None = None
+    fecha_limite: date | None = None
+    activa: bool | None = None
+
+
+@router.get("/api/metas-ahorro")
+def api_listar_metas(
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+    user_id: int | None = None,
+) -> list[dict]:
+    uid = _filter_user_id(session, db, user_id)
+    if uid is None:
+        metas = svc_metas.listar_metas(db, user_ids=_visible_ids(session, db))
+    else:
+        metas = svc_metas.listar_metas(db, user_id=uid)
+    return [svc_metas.serializar_meta(m) for m in metas]
+
+
+@router.post("/api/metas-ahorro", status_code=201)
+def api_crear_meta(
+    data: MetaAhorroIn,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    data.user_id = session["user_id"]
+    meta = svc_metas.crear_meta(
+        db,
+        user_id=data.user_id,
+        nombre=data.nombre,
+        monto_objetivo_cop=data.monto_objetivo_cop,
+        monto_actual_cop=data.monto_actual_cop,
+        fecha_limite=data.fecha_limite,
+    )
+    return svc_metas.serializar_meta(meta)
+
+
+@router.patch("/api/metas-ahorro/{meta_id}")
+def api_actualizar_meta(
+    meta_id: int,
+    data: MetaAhorroPatch,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    meta = db.query(MetaAhorro).filter(MetaAhorro.id == meta_id).one_or_none()
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Meta no encontrada")
+    if meta.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes editar tus propias metas")
+    kwargs: dict = {}
+    if data.nombre is not None:
+        kwargs["nombre"] = data.nombre
+    if data.monto_objetivo_cop is not None:
+        kwargs["monto_objetivo_cop"] = data.monto_objetivo_cop
+    if data.monto_actual_cop is not None:
+        kwargs["monto_actual_cop"] = data.monto_actual_cop
+    if data.fecha_limite is not None:
+        kwargs["fecha_limite"] = data.fecha_limite
+    if data.activa is not None:
+        kwargs["activa"] = data.activa
+    meta = svc_metas.actualizar_meta(db, meta, **kwargs)
+    return svc_metas.serializar_meta(meta)
+
+
+@router.delete("/api/metas-ahorro/{meta_id}")
+def api_eliminar_meta(
+    meta_id: int,
+    session: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    meta = db.query(MetaAhorro).filter(MetaAhorro.id == meta_id).one_or_none()
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Meta no encontrada")
+    if meta.user_id != session["user_id"]:
+        raise HTTPException(status_code=403, detail="Solo puedes eliminar tus propias metas")
+    svc_metas.eliminar_meta(db, meta)
     return {"status": "ok"}

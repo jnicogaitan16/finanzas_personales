@@ -7,48 +7,43 @@ Sistema de finanzas personales con dashboard web tipo app movil para registrar g
 | Componente | Tecnologia |
 |-----------|-----------|
 | Backend | Python 3.12 + FastAPI |
-| Frontend | Next.js 16 + React + TailwindCSS + Shadcn/ui + Recharts |
-| Base de datos | PostgreSQL 15 |
-| Parser IA | Groq (Llama 3.3 70B) + regex fallback |
-| Auth | Cookies HttpOnly + bcrypt (por usuario) |
-| Orquestacion | Docker Compose (4 servicios) |
-| PWA | Instalable en celular (manifest.json + standalone) |
+| Frontend | Next.js 16 + React + TailwindCSS + Shadcn/ui |
+| Base de datos | PostgreSQL 15 + SQLAlchemy 2.0 + Alembic |
+| Auth | Google OAuth + usuario/contrasena + cookies HttpOnly |
+| Orquestacion | Docker Compose (5 servicios) |
+| Deploy | Oracle Cloud Free Tier + Caddy HTTPS + GitHub Actions |
 
 ## Funcionalidades
 
 ### Finanzas
 - **Registro de gastos** con categorias, medio de pago y compartido
 - **Tarjetas de credito**: crear tarjetas con fecha corte/pago, vincular compras diferidas, proyeccion de cuotas a 6 meses
-- **Ingresos**: fijos (auto-registrados mensualmente) y variables/bonos puntuales
+- **Ingresos**: fijos y variables con frecuencia configurable
 - **Presupuestos**: limites por categoria con alertas al 80%+
 - **Gastos compartidos**: balance automatico entre miembros del hogar
 - **Cuotas TDC**: tracking de compras a cuotas con progreso y saldo
 - **Gastos fijos**: recurrentes mensuales
 - **Deudas**: tracking de prestamos y tarjetas
+- **Metas de ahorro**: objetivos con barra de progreso y fecha limite
 
 ### Inteligencia financiera
 - **Flujo de caja**: ingresos - fijos - cuotas - gasto flexible = disponible
-- **Score de salud financiera** (0-100) con 4 criterios evaluados
-- **Alertas automaticas**: presupuesto al limite, pago proximo de tarjeta, deudas vencidas
-- **Proyeccion al cierre**: estimacion de gasto/ingreso mensual
-- **Deteccion de anomalias**: gastos que superan 2x el promedio historico
+- **Score de salud financiera** (0-100) con 8 criterios ponderados
+- **8 tipos de alertas**: presupuesto al limite, pago proximo de tarjeta, deudas vencidas, gasto inusual, tendencia alcista, ingreso no recibido, cupo TC bajo, oportunidad de ahorro
 
 ### Usuarios y seguridad
-- **Auth por usuario**: cada persona tiene su login (usuario + contrasena bcrypt)
-- **Grupos familiares**: vincular 2 usuarios por hogar con codigo de invitacion
-- **Aislamiento de datos**: cada usuario/grupo solo ve su propia informacion
-- **Codigo de invitacion**: 8 caracteres, expira en 24h, uso unico
+- **Google OAuth**: login con cuenta Google (solo cuentas autorizadas)
+- **Login clasico**: usuario + contrasena con bcrypt
+- **Registro cerrado**: solo con codigo de invitacion
+- **Grupos familiares**: vincular 2 usuarios por hogar
+- **Aislamiento de datos**: cada grupo solo ve su propia informacion
 - **Soft delete + Audit log**: integridad de datos completa
 
 ### UI/UX
-- **Diseño tipo app movil**: sidebar lateral, FAB, cards con gradientes
-- **PWA instalable**: agregar a pantalla de inicio en iOS/Android
-- **Login limpio**: fondo blanco, estilo iOS, con opcion de registro
-- **Dashboard**: KPIs coloridos, donut de categorias, tendencia, alertas
+- **Tema purpura oscuro**: sin sidebar, navegacion por cards en dashboard
+- **Responsive**: funciona en desktop, tablet y celular
 - **Skeleton loaders**: shimmer durante carga
 - **Animaciones**: fade-in, stagger en cards, transiciones suaves
-- **Responsive**: funciona en desktop, tablet y celular
-- **Dark mode**: tema oscuro con acentos emerald
 
 ## Inicio rapido
 
@@ -62,7 +57,7 @@ Sistema de finanzas personales con dashboard web tipo app movil para registrar g
 git clone <repo-url> finanzas_personales
 cd finanzas_personales
 cp .env.example .env
-# Editar .env con tus credenciales
+# Editar .env con tus credenciales (Google OAuth, Groq, etc.)
 docker compose up -d
 ```
 
@@ -70,62 +65,29 @@ docker compose up -d
 - **Frontend**: http://localhost:3000
 - **API**: http://localhost:8000/health
 
-### Primer uso
-1. Abre http://localhost:3000
-2. Click "Registrate" → crea tu usuario con nombre y contrasena
-3. Inicia sesion
-4. Ve a "Mi cuenta" → genera un codigo de invitacion para tu pareja/familia
-5. Tu pareja se registra con el codigo → quedan en el mismo grupo familiar
-
 ## Arquitectura
 
 ```
     Next.js Frontend (Docker :3000)
             |
-        REST API
+        REST API (proxy)
             |
     FastAPI Backend (Docker :8000)
-        /          \
-    Parser       Servicios
-    (LLM+regex)  (CRUD + audit + inteligencia)
-        \          /
+            |
+        Servicios (CRUD + audit + inteligencia)
+            |
     PostgreSQL (Docker :5433)
-        |
-    Redis (Docker :6379)
-    (command state)
+
+    Caddy (prod: HTTPS reverse proxy :80/:443)
 ```
 
-## Estructura del proyecto
-
-```
-finanzas_personales/
-  backend/
-    main.py              # FastAPI app
-    config.py             # Settings desde .env
-    admin/                # Auth (bcrypt), router con 40+ endpoints
-    db/                   # Models (10 tablas), session, migrations Alembic
-    parser/               # LLM + regex + categorias + numeros hablados
-    services/             # Logica: registro, comandos, tarjetas, ingresos,
-                          #   inteligencia, presupuesto, balance, cuotas, audit
-    tests/                # 97 tests con PostgreSQL SAVEPOINT
-  frontend/
-    src/app/              # Paginas: dashboard, movimientos, tarjetas, ingresos,
-                          #   cuotas, presupuestos, compartido, gastos-fijos,
-                          #   categorias, cuenta, login
-    src/components/       # Dashboard (KPIs, donut, score, alertas, cashflow),
-                          #   layout (sidebar, topbar, fab, app-shell)
-    src/lib/              # Types, API client, format helpers
-  docs/                   # Plan de proyecto, deprecacion WhatsApp
-  docker-compose.yml      # 4 servicios: backend, frontend, postgres, redis
-```
-
-## Modelo de datos
+## Modelo de datos (12 tablas)
 
 | Tabla | Descripcion |
 |-------|-------------|
 | `grupos` | Hogar familiar (max 2 miembros, codigo invitacion) |
-| `users` | Usuarios con password_hash + grupo_id |
-| `categorias` | 17 categorias (gasto/ingreso) |
+| `users` | Usuarios con password_hash, email, google_id, grupo_id |
+| `categorias` | Categorias (gasto/ingreso) |
 | `movimientos` | Gastos e ingresos con soft delete |
 | `tarjetas_credito` | Tarjetas con fecha corte/pago, tasa EA, cupo |
 | `compras_cuotas` | Compras diferidas vinculadas a tarjeta |
@@ -133,6 +95,7 @@ finanzas_personales/
 | `gastos_fijos` | Gastos recurrentes mensuales |
 | `presupuestos` | Limites por categoria y mes |
 | `deudas` | Prestamos y tarjetas |
+| `metas_ahorro` | Objetivos de ahorro con progreso |
 | `audit_log` | Registro de cambios con JSON diffs |
 
 ## Comandos utiles
@@ -147,12 +110,17 @@ docker compose build backend frontend && docker compose up -d
 # Logs
 docker compose logs backend --tail 30
 
-# Tests (requiere Postgres corriendo en localhost:5433)
-cd backend && python -m pytest tests/ -q
+# Tests
+docker cp backend/tests finanzas-personales-backend-1:/app/tests
+docker compose exec backend python -m pytest tests/ -q
 
 # Migraciones
-cd backend && alembic upgrade head
+docker compose exec backend alembic upgrade head
 ```
+
+## Deploy
+
+Deploy automatico a Oracle Cloud Free Tier al mergear a `main`. Ver `docs/deploy-oracle-cloud.md`.
 
 ## Licencia
 

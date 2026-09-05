@@ -16,9 +16,6 @@ def test_crear_movimiento_completo(seeded_session: Session) -> None:
         categoria_id=categoria.id,
         monto_cop=15300,
         descripcion="almuerzo",
-        mensaje_original="gasté 15.300 en almuerzo",
-        fue_audio=False,
-        confianza_parsing=0.95,
         fecha_gasto=date(2026, 8, 31),
     )
     seeded_session.add(movimiento)
@@ -29,8 +26,7 @@ def test_crear_movimiento_completo(seeded_session: Session) -> None:
     assert guardado.user.nombre == "Nico"
     assert guardado.categoria is not None
     assert guardado.categoria.nombre == "Mercado"
-    assert guardado.mensaje_original == "gasté 15.300 en almuerzo"
-    assert guardado.fue_audio is False
+    assert guardado.descripcion == "almuerzo"
     assert guardado.fecha_registro is not None
 
 
@@ -41,15 +37,15 @@ def test_movimiento_sin_categoria_es_valido(seeded_session: Session) -> None:
             user_id=user.id,
             categoria_id=None,
             monto_cop=5000,
-            mensaje_original="gasté 5 mil no sé en qué",
+            descripcion="gasté 5 mil no sé en qué",
         )
     )
     seeded_session.commit()
     assert seeded_session.query(Movimiento).count() == 1
 
 
-def test_numero_whatsapp_unico(seeded_session: Session) -> None:
-    seeded_session.add(User(nombre="Otro", numero_whatsapp="573001112233"))
+def test_nombre_usuario_unico(seeded_session: Session) -> None:
+    seeded_session.add(User(nombre="Nico"))
     with pytest.raises(IntegrityError):
         seeded_session.commit()
 
@@ -71,7 +67,7 @@ def test_movimiento_exige_usuario(seeded_session: Session) -> None:
         Movimiento(
             user_id=None,  # type: ignore[arg-type]
             monto_cop=1000,
-            mensaje_original="sin usuario",
+            descripcion="sin usuario",
         )
     )
     with pytest.raises(IntegrityError):
@@ -83,7 +79,7 @@ def test_fk_usuario_inexistente(seeded_session: Session) -> None:
         Movimiento(
             user_id=999,
             monto_cop=1000,
-            mensaje_original="usuario fantasma",
+            descripcion="usuario fantasma",
         )
     )
     with pytest.raises(IntegrityError):

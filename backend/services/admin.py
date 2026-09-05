@@ -5,7 +5,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session, joinedload
 
 from db.models import Categoria, Movimiento, User
-from parser.mensajes import format_cop
+from utils import format_cop
 from services.audit import (
     _movimiento_a_dict,
     registrar_borrado,
@@ -26,8 +26,6 @@ def serializar_movimiento(m: Movimiento) -> dict:
         "monto_cop": m.monto_cop,
         "monto_fmt": format_cop(m.monto_cop),
         "descripcion": m.descripcion,
-        "mensaje_original": m.mensaje_original,
-        "fue_audio": m.fue_audio,
         "fecha_gasto": m.fecha_gasto.isoformat() if m.fecha_gasto else None,
         "fecha_registro": m.fecha_registro.isoformat(sep=" ", timespec="seconds")
         if m.fecha_registro
@@ -84,7 +82,6 @@ def crear_movimiento(
     categoria_id: int | None,
     monto_cop: int,
     descripcion: str | None,
-    mensaje_original: str,
     fecha_gasto: date | None,
     fecha_registro: datetime | None = None,
     medio_pago: str | None = None,
@@ -102,8 +99,6 @@ def crear_movimiento(
         categoria_id=categoria_id,
         monto_cop=monto_cop,
         descripcion=descripcion,
-        mensaje_original=mensaje_original or descripcion or "carga manual",
-        fue_audio=False,
         fecha_gasto=fecha_gasto,
         fecha_registro=a_bogota(fecha_registro) if fecha_registro else ahora_bogota(),
         medio_pago=medio_pago,
@@ -125,7 +120,6 @@ def actualizar_movimiento(
     categoria_id: int | None = None,
     monto_cop: int | None = None,
     descripcion: str | None = None,
-    mensaje_original: str | None = None,
     fecha_gasto: date | None = None,
     limpiar_categoria: bool = False,
     origen: str = "admin",
@@ -150,8 +144,6 @@ def actualizar_movimiento(
         movimiento.monto_cop = monto_cop
     if descripcion is not None:
         movimiento.descripcion = descripcion or None
-    if mensaje_original is not None:
-        movimiento.mensaje_original = mensaje_original
     if fecha_gasto is not None:
         movimiento.fecha_gasto = fecha_gasto
     if medio_pago is not None:
@@ -241,14 +233,15 @@ def eliminar_categoria(db: Session, categoria: Categoria) -> None:
     db.commit()
 
 
-def crear_usuario(db: Session, *, nombre: str, numero_whatsapp: str) -> User:
+def crear_usuario(db: Session, *, nombre: str, email: str | None = None) -> User:
     nombre = nombre.strip()
-    numero = "".join(ch for ch in numero_whatsapp if ch.isdigit())
-    if not nombre or not numero:
-        raise ValueError("Nombre y número son obligatorios")
-    if db.query(User).filter(User.numero_whatsapp == numero).one_or_none():
-        raise ValueError("Ese número de WhatsApp ya está registrado")
-    user = User(nombre=nombre, numero_whatsapp=numero)
+    if not nombre:
+        raise ValueError("El nombre es obligatorio")
+    if email:
+        email = email.strip().lower()
+        if db.query(User).filter(User.email == email).one_or_none():
+            raise ValueError("Ese email ya está registrado")
+    user = User(nombre=nombre, email=email or None)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -260,21 +253,20 @@ def actualizar_usuario(
     user: User,
     *,
     nombre: str | None = None,
-    numero_whatsapp: str | None = None,
+    email: str | None = None,
 ) -> User:
     if nombre is not None:
         nombre = nombre.strip()
         if not nombre:
             raise ValueError("El nombre es obligatorio")
         user.nombre = nombre
-    if numero_whatsapp is not None:
-        numero = "".join(ch for ch in numero_whatsapp if ch.isdigit())
-        if not numero:
-            raise ValueError("El número es obligatorio")
-        otro = db.query(User).filter(User.numero_whatsapp == numero).one_or_none()
-        if otro and otro.id != user.id:
-            raise ValueError("Ese número de WhatsApp ya está registrado")
-        user.numero_whatsapp = numero
+    if email is not None:
+        email = email.strip().lower() if email else None
+        if email:
+            otro = db.query(User).filter(User.email == email).one_or_none()
+            if otro and otro.id != user.id:
+                raise ValueError("Ese email ya está registrado")
+        user.email = email
     db.commit()
     db.refresh(user)
     return user

@@ -5,8 +5,10 @@ import { toast } from "sonner"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useUserFilter } from "@/hooks/use-user-filter"
+import { useAuth } from "@/hooks/use-auth"
 import { formatCOP } from "@/lib/format"
-import type { Presupuesto, PresupuestoResumen, Categoria, Usuario } from "@/lib/types"
+import type { Presupuesto, PresupuestoResumen, Categoria } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -26,14 +28,12 @@ import {
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
 
 interface FormState {
-  user_id: string
   categoria_id: string
   monto_limite_cop: string
   mes_vigente: string
 }
 
 const emptyForm: FormState = {
-  user_id: "",
   categoria_id: "",
   monto_limite_cop: "",
   mes_vigente: "",
@@ -48,7 +48,8 @@ export default function PresupuestosPage() {
     const d = new Date()
     return { year: d.getFullYear(), month: d.getMonth() }
   })
-  const [filterUser, setFilterUser] = useState<string>("todos")
+  const { selectedUser: filterUser } = useUserFilter()
+  const { userId } = useAuth()
 
   const monthKey = `${selectedMonth.year}-${String(selectedMonth.month + 1).padStart(2, "0")}`
   const monthLabel = `${MESES[selectedMonth.month]} ${selectedMonth.year}`
@@ -73,11 +74,6 @@ export default function PresupuestosPage() {
 
   const { data: categorias } = usePolling<Categoria[]>(
     () => api.get("/api/categorias"),
-    5000,
-  )
-
-  const { data: usuarios } = usePolling<Usuario[]>(
-    () => api.get("/api/usuarios"),
     5000,
   )
 
@@ -111,7 +107,7 @@ export default function PresupuestosPage() {
     setSaving(true)
     try {
       await api.post("/api/presupuestos", {
-        user_id: Number(form.user_id),
+        user_id: userId,
         categoria_id: Number(form.categoria_id),
         monto_limite_cop: Number(form.monto_limite_cop),
         mes_vigente: form.mes_vigente,
@@ -167,20 +163,6 @@ export default function PresupuestosPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-bold text-gray-100">Presupuestos</h1>
         <div className="flex items-center gap-3">
-          <Select value={filterUser} onValueChange={(v) => setFilterUser(v ?? "todos")}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos</SelectItem>
-              {(usuarios ?? []).map((u) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           <div className="flex items-center gap-1">
             <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-white/5 text-gray-400">
               <ChevronLeft className="w-4 h-4" />
@@ -191,7 +173,9 @@ export default function PresupuestosPage() {
             </button>
           </div>
 
-          <Button onClick={openCreate}>Nuevo presupuesto</Button>
+          {(filterUser === "todos" || filterUser === String(userId)) && (
+            <Button onClick={openCreate}>Nuevo presupuesto</Button>
+          )}
         </div>
       </div>
 
@@ -218,7 +202,7 @@ export default function PresupuestosPage() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="font-medium">{r.categoria}</h3>
-                {pres && (
+                {pres && pres.user_id === userId && (
                   <Button
                     variant="ghost"
                     size="xs"
@@ -264,25 +248,6 @@ export default function PresupuestosPage() {
             <DialogTitle>Nuevo presupuesto</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-2">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Usuario</label>
-              <Select
-                value={form.user_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, user_id: v ?? "" }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar usuario" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(usuarios ?? []).map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">Categoria</label>
               <Select
@@ -331,7 +296,7 @@ export default function PresupuestosPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={saving || !form.user_id || !form.categoria_id || !form.monto_limite_cop}
+                disabled={saving || !form.categoria_id || !form.monto_limite_cop}
               >
                 {saving ? "Guardando..." : "Crear"}
               </Button>

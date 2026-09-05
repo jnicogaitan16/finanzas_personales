@@ -192,7 +192,6 @@ export default function IngresosPage() {
         monto_cop: Number(ingresoForm.monto_cop),
         descripcion: ingresoForm.descripcion || "Ingreso",
         fecha_gasto: ingresoForm.fecha || null,
-        mensaje_original: ingresoForm.descripcion || "Ingreso registrado",
         categoria_id: catIngreso?.id ?? null,
       })
       toast.success("Ingreso registrado")
@@ -289,7 +288,7 @@ export default function IngresosPage() {
         ) : (
           <div className="bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden">
             {ingresosMes.map(m => {
-              const isAuto = m.mensaje_original?.startsWith("ingreso_fijo:")
+              const isAuto = m.marca_dedup?.startsWith("ingreso_fijo:")
               return (
                 <div key={m.id} className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isAuto ? "bg-emerald-500/15" : "bg-amber-500/15"}`}>

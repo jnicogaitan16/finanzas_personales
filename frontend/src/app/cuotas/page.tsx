@@ -4,9 +4,11 @@ import { useState, useMemo } from "react"
 import { toast } from "sonner"
 import { api } from "@/lib/api-client"
 import { usePolling } from "@/hooks/use-polling"
+import { useUserFilter } from "@/hooks/use-user-filter"
+import { useAuth } from "@/hooks/use-auth"
 import { useSort } from "@/hooks/use-sort"
 import { formatCOP, formatDate } from "@/lib/format"
-import type { CompraCuotas, Usuario } from "@/lib/types"
+import type { CompraCuotas } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SortableHead } from "@/components/ui/sortable-head"
@@ -16,13 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -37,7 +32,6 @@ import {
 /* ------------------------------------------------------------------ */
 
 interface FormState {
-  user_id: string
   fecha_compra: string
   establecimiento: string
   descripcion: string
@@ -46,14 +40,12 @@ interface FormState {
   cuotas_pagadas: string
   valor_cuota: string
   valor_intereses: string
-  tarjeta: string
   tasa_ea: string
   numero_transaccion: string
   compartida: boolean
 }
 
 const emptyForm: FormState = {
-  user_id: "",
   fecha_compra: "",
   establecimiento: "",
   descripcion: "",
@@ -62,7 +54,6 @@ const emptyForm: FormState = {
   cuotas_pagadas: "0",
   valor_cuota: "",
   valor_intereses: "0",
-  tarjeta: "",
   tasa_ea: "",
   numero_transaccion: "",
   compartida: false,
@@ -97,7 +88,8 @@ export default function CuotasPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
-  const [filterUser, setFilterUser] = useState<string>("todos")
+  const { selectedUser: filterUser } = useUserFilter()
+  const { userId } = useAuth()
   const [saving, setSaving] = useState(false)
 
   const {
@@ -105,11 +97,6 @@ export default function CuotasPage() {
     loading: loadingCuotas,
     refetch: refetchCuotas,
   } = usePolling<CompraCuotas[]>(() => api.get("/api/cuotas"), 5000)
-
-  const { data: usuarios } = usePolling<Usuario[]>(
-    () => api.get("/api/usuarios"),
-    5000,
-  )
 
   /* ---- Filtered list ---- */
   const filtered = useMemo(
@@ -175,7 +162,6 @@ export default function CuotasPage() {
   function openEdit(c: CompraCuotas) {
     setEditingId(c.id)
     setForm({
-      user_id: String(c.user_id),
       fecha_compra: c.fecha_compra ? c.fecha_compra.split("T")[0] : "",
       establecimiento: c.establecimiento,
       descripcion: c.descripcion ?? "",
@@ -184,7 +170,6 @@ export default function CuotasPage() {
       cuotas_pagadas: String(c.cuotas_pagadas),
       valor_cuota: String(c.valor_cuota_cop),
       valor_intereses: String(c.valor_intereses_cop),
-      tarjeta: c.tarjeta ?? "",
       tasa_ea: c.tasa_ea != null ? String(c.tasa_ea) : "",
       numero_transaccion: c.numero_transaccion ?? "",
       compartida: c.es_compartido ?? false,
@@ -198,7 +183,7 @@ export default function CuotasPage() {
     setSaving(true)
 
     const body: Record<string, unknown> = {
-      user_id: Number(form.user_id),
+      user_id: userId,
       fecha_compra: form.fecha_compra || null,
       establecimiento: form.establecimiento,
       descripcion: form.descripcion || null,
@@ -207,7 +192,6 @@ export default function CuotasPage() {
       cuotas_pagadas: Number(form.cuotas_pagadas),
       valor_cuota_cop: Number(form.valor_cuota) || null,
       valor_intereses_cop: Number(form.valor_intereses) || 0,
-      tarjeta: form.tarjeta || null,
       tasa_ea: form.tasa_ea ? Number(form.tasa_ea) : null,
       numero_transaccion: form.numero_transaccion || null,
       es_compartido: form.compartida,
@@ -252,23 +236,9 @@ export default function CuotasPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Compras en cuotas</h1>
         <div className="flex items-center gap-3">
-          <Select
-            value={filterUser}
-            onValueChange={(v) => setFilterUser(v ?? "todos")}
-          >
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos</SelectItem>
-              {(usuarios ?? []).map((u) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={openCreate}>Nueva compra</Button>
+          {(filterUser === "todos" || filterUser === String(userId)) && (
+            <Button onClick={openCreate}>Nueva compra</Button>
+          )}
         </div>
       </div>
 
@@ -360,20 +330,22 @@ export default function CuotasPage() {
                     ) : "---"}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        className="text-xs font-medium text-blue-500 hover:text-blue-700 transition-colors"
-                        onClick={() => openEdit(c)}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        className="text-xs font-medium text-rose-400 hover:text-rose-600 transition-colors"
-                        onClick={() => handleDelete(c.id)}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
+                    {c.user_id === userId && (
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          className="text-xs font-medium text-blue-500 hover:text-blue-700 transition-colors"
+                          onClick={() => openEdit(c)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className="text-xs font-medium text-rose-400 hover:text-rose-600 transition-colors"
+                          onClick={() => handleDelete(c.id)}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -408,22 +380,6 @@ export default function CuotasPage() {
             onSubmit={handleSubmit}
             className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 mt-2"
           >
-            {/* Usuario */}
-            <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <label className="text-sm font-medium">Usuario</label>
-              <select
-                value={form.user_id}
-                onChange={(e) => updateForm({ user_id: e.target.value })}
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                required
-              >
-                <option value="">Seleccionar</option>
-                {(usuarios ?? []).map((u) => (
-                  <option key={u.id} value={String(u.id)}>{u.nombre}</option>
-                ))}
-              </select>
-            </div>
-
             {/* Establecimiento */}
             <div className="flex flex-col gap-1.5 sm:col-span-2">
               <label className="text-sm font-medium">Establecimiento</label>
@@ -541,18 +497,6 @@ export default function CuotasPage() {
               />
             </div>
 
-            {/* Tarjeta */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Tarjeta</label>
-              <Input
-                value={form.tarjeta}
-                onChange={(e) =>
-                  updateForm({ tarjeta: e.target.value })
-                }
-                placeholder="Davivienda, Nubank..."
-              />
-            </div>
-
             {/* No. transaccion */}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">No. transaccion</label>
@@ -606,7 +550,6 @@ export default function CuotasPage() {
                 type="submit"
                 disabled={
                   saving ||
-                  !form.user_id ||
                   !form.establecimiento ||
                   !form.valor_total_cop ||
                   !form.num_cuotas

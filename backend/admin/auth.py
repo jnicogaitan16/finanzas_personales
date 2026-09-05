@@ -133,5 +133,19 @@ def get_visible_user_ids(session: dict[str, Any], db: Session) -> list[int]:
     return [session["user_id"]]
 
 
+def create_session_for_user(user: User) -> str:
+    """Create a session token for an already-authenticated user (e.g. OAuth)."""
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = {
+        "user_id": user.id,
+        "username": user.nombre,
+        "grupo_id": user.grupo_id,
+        "created": _now(),
+    }
+    if len(_sessions) > _MAX_SESSIONS:
+        _sessions.popitem(last=False)
+    return token
+
+
 def clear_all_sessions() -> None:
     _sessions.clear()
