@@ -17,24 +17,48 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+
     # Migrar mensaje_original → marca_dedup (copiar datos de dedup antes de eliminar)
-    op.add_column('movimientos', sa.Column('marca_dedup', sa.Text(), nullable=True))
-    op.execute("""
-        UPDATE movimientos SET marca_dedup = mensaje_original
-        WHERE mensaje_original LIKE 'ingreso_fijo:%'
-    """)
-    op.drop_column('movimientos', 'mensaje_original')
-    op.drop_column('movimientos', 'fue_audio')
-    op.drop_column('movimientos', 'confianza_parsing')
+    if _column_exists(conn, 'movimientos', 'mensaje_original'):
+        op.add_column('movimientos', sa.Column('marca_dedup', sa.Text(), nullable=True))
+        op.execute("""
+            UPDATE movimientos SET marca_dedup = mensaje_original
+            WHERE mensaje_original LIKE 'ingreso_fijo:%'
+        """)
+        op.drop_column('movimientos', 'mensaje_original')
+    if _column_exists(conn, 'movimientos', 'fue_audio'):
+        op.drop_column('movimientos', 'fue_audio')
+    if _column_exists(conn, 'movimientos', 'confianza_parsing'):
+        op.drop_column('movimientos', 'confianza_parsing')
 
     # Users: quitar numero_whatsapp, agregar email
-    op.add_column('users', sa.Column('email', sa.Text(), nullable=True))
-    op.drop_constraint('users_numero_whatsapp_key', 'users', type_='unique')
-    op.drop_column('users', 'numero_whatsapp')
-    op.create_unique_constraint('uq_users_email', 'users', ['email'])
+    if not _column_exists(conn, 'users', 'email'):
+        op.add_column('users', sa.Column('email', sa.Text(), nullable=True))
+    if _constraint_exists(conn, 'users_numero_whatsapp_key'):
+        op.drop_constraint('users_numero_whatsapp_key', 'users', type_='unique')
+    if _column_exists(conn, 'users', 'numero_whatsapp'):
+        op.drop_column('users', 'numero_whatsapp')
+    if not _constraint_exists(conn, 'uq_users_email'):
+        op.create_unique_constraint('uq_users_email', 'users', ['email'])
 
     # CompraCuotas: quitar columna tarjeta texto redundante
-    op.drop_column('compras_cuotas', 'tarjeta')
+    if _column_exists(conn, 'compras_cuotas', 'tarjeta'):
+        op.drop_column('compras_cuotas', 'tarjeta')
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = :t AND column_name = :c"
+    ), {"t": table, "c": column})
+    return result.fetchone() is not None
+
+
+def _constraint_exists(conn, name: str) -> bool:
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = :n"
+    ), {"n": name})
+    return result.fetchone() is not None
 
 
 def downgrade() -> None:
